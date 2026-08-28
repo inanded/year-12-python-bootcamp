@@ -32,6 +32,46 @@ function firstIncompleteLevelIndex(progress: Progress, badge: Badge) {
 const CORE_BADGES = BADGES.filter((badge) => !badge.optional);
 const CORE_TASK_KEYS = CORE_BADGES.flatMap((badge) => taskKeys(badge));
 
+type AwardTier = "locked" | "working" | "bronze" | "silver" | "gold";
+
+const BADGE_MARKS: Record<string, string> = {
+  starter: ">_",
+  input: "123",
+  selection: "IF",
+  loops: "↻",
+  lists: "[ ]",
+  grids: "#",
+  subroutines: "ƒ()",
+  files: "TXT",
+  algorithms: "⇅",
+  "problem-solver": "★",
+  "advanced-as": "AS",
+};
+
+function awardTier(done: number, total: number): AwardTier {
+  if (done === total) return "gold";
+  if (done >= 6) return "silver";
+  if (done >= 3) return "bronze";
+  if (done > 0) return "working";
+  return "locked";
+}
+
+function awardLabel(tier: AwardTier) {
+  if (tier === "gold") return "Gold badge earned";
+  if (tier === "silver") return "Silver level earned";
+  if (tier === "bronze") return "Bronze level earned";
+  if (tier === "working") return "Badge in progress";
+  return "Not started";
+}
+
+function AchievementMedal({ badge, tier, compact = false }: { badge: Badge; tier: AwardTier; compact?: boolean }) {
+  return (
+    <span className={`achievement-medal ${tier} ${badge.optional ? "advanced" : ""} ${compact ? "compact" : ""}`} aria-hidden="true">
+      <span className="medal-disc"><span className="medal-mark">{BADGE_MARKS[badge.id] || badge.number}</span><small>{badge.number}</small></span>
+    </span>
+  );
+}
+
 function CodeBlock({ label, value, copyLabel = "Copy code" }: { label: string; value: string; copyLabel?: string }) {
   const [copied, setCopied] = useState(false);
 
@@ -151,6 +191,11 @@ export default function Home() {
     window.scrollTo({ top: 0, behavior: "smooth" });
   }
 
+  function showBadgeCollection() {
+    setSelectedBadgeId(null);
+    window.setTimeout(() => document.getElementById("badge-collection")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
+  }
+
   function toggleTask(key: string) {
     setProgress((current) => ({ ...current, [key]: !current[key] }));
   }
@@ -249,6 +294,7 @@ export default function Home() {
             <span>{completeBadges} of {CORE_BADGES.length} core badges</span>
             <div><i style={{ width: `${Math.round((completeTasks / TOTAL_TASKS) * 100)}%` }} /></div>
           </div>
+          <button className="quiet-button badge-dashboard-button" type="button" onClick={showBadgeCollection}>My badges</button>
           <button className="quiet-button" type="button" onClick={downloadProgress}>Save report</button>
           <label className="quiet-button file-button">Upload report<input type="file" accept=".json,application/json" onChange={uploadProgress} /></label>
         </div>
@@ -262,7 +308,8 @@ export default function Home() {
           level={currentLevel}
           levelIndex={selectedLevel}
           progress={progress}
-          onBack={returnHome}
+            onBack={returnHome}
+            onShowBadges={showBadgeCollection}
             onSelectLevel={selectLevel}
             onToggleTask={toggleTask}
             onOpenBadge={openBadge}
@@ -320,6 +367,8 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
         </aside>
       </section>
 
+      <BadgeCollection progress={progress} completeBadges={completeBadges} onOpenBadge={onOpenBadge} />
+
       <section className="roadmap" aria-labelledby="roadmap-title">
         <div className="section-heading">
           <div><p className="eyebrow dark">Your pathway</p><h2 id="roadmap-title">Ten core badges, plus one optional advanced pathway.</h2></div>
@@ -360,12 +409,49 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
   );
 }
 
-function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, onToggleTask, onOpenBadge, onDownload, onUpload }: {
+function BadgeCollection({ progress, completeBadges, onOpenBadge }: {
+  progress: Progress;
+  completeBadges: number;
+  onOpenBadge: (id: string, level?: number) => void;
+}) {
+  const earnedLevels = BADGES.reduce((total, badge) => total + badge.levels.filter((level) => countComplete(progress, taskKeys(badge, level)) === level.tasks.length).length, 0);
+
+  return (
+    <section className="achievement-dashboard" id="badge-collection" aria-labelledby="badge-collection-title">
+      <div className="achievement-heading">
+        <div><p className="eyebrow dark">Your achievements</p><h2 id="badge-collection-title">Badge collection</h2><p>Each set of three working tasks earns a level. Complete Bronze, Silver and Gold to earn the full badge.</p></div>
+        <div className="collection-summary" aria-label={`${completeBadges} core badges and ${earnedLevels} challenge levels earned`}>
+          <span><strong>{completeBadges}</strong><small>core badges</small></span>
+          <span><strong>{earnedLevels}</strong><small>levels earned</small></span>
+        </div>
+      </div>
+      <div className="tier-key" aria-label="Badge colour key"><span className="key-locked">Not started</span><span className="key-working">Working on it</span><span className="key-bronze">Bronze</span><span className="key-silver">Silver</span><span className="key-gold">Gold</span></div>
+      <div className="medal-grid">
+        {BADGES.map((badge) => {
+          const total = taskKeys(badge).length;
+          const done = countComplete(progress, taskKeys(badge));
+          const tier = awardTier(done, total);
+          const nextLevel = firstIncompleteLevelIndex(progress, badge);
+          return (
+            <button className={`medal-card ${tier} ${badge.optional ? "advanced" : ""}`} type="button" onClick={() => onOpenBadge(badge.id, nextLevel)} key={badge.id} aria-label={`${badge.credential}. ${awardLabel(tier)}. ${done} of ${total} tasks complete.`}>
+              <AchievementMedal badge={badge} tier={tier} />
+              <span className="medal-copy"><strong>{badge.credential}</strong><small>{awardLabel(tier)}</small><span>{done} / {total} tasks</span></span>
+            </button>
+          );
+        })}
+      </div>
+      <p className="collection-note"><strong>Evidence rule:</strong> tick a task only after your own program runs and passes the stated tests. The saved Python file is your evidence; the dashboard records your progress.</p>
+    </section>
+  );
+}
+
+function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, onSelectLevel, onToggleTask, onOpenBadge, onDownload, onUpload }: {
   badge: Badge;
   level: ChallengeLevel;
   levelIndex: number;
   progress: Progress;
   onBack: () => void;
+  onShowBadges: () => void;
   onSelectLevel: (index: number) => void;
   onToggleTask: (key: string) => void;
   onOpenBadge: (id: string, level?: number) => void;
@@ -500,7 +586,7 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
               <details className="model-box"><summary>Compare with the model Python answer</summary><div className="model-warning">Use this after you have run and tested your own attempt. A different working solution can still be correct.</div><CodeBlock label="Model Python" value={level.model} /><h4>Why this works</h4><ul>{level.modelNotes.map((note) => <li key={note}>{note}</li>)}</ul></details>
             </div>
 
-            {levelDone === 3 && <div className="credential-earned"><span>✓</span><div><strong>{level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold"} level complete</strong><p>Your working Python file is the evidence. Keep it with your progress report.</p></div></div>}
+            {levelDone === 3 && <div className={`credential-earned ${level.id}`}><AchievementMedal badge={badge} tier={level.id} compact /><div><strong>{level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold"} level earned</strong><p>Added to your badge collection. Your working Python file is the evidence.</p></div><button type="button" onClick={onShowBadges}>View my badges</button></div>}
 
             <div className="mission-actions">
               {levelIndex > 0 && <button type="button" onClick={() => onSelectLevel(levelIndex - 1)}>← Previous level</button>}
