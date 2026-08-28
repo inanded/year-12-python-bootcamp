@@ -367,6 +367,9 @@ code, pre { font-family: Consolas, "Courier New", monospace; }
 .claim-stage .credential-earned { margin-top: 0; }
 .claim-stage .model-box { margin-top: 20px; border: 1px solid var(--line); border-radius: 9px; background: #fbfcfd; overflow: hidden; }
 .claim-stage .model-box > summary { padding: 17px 19px; color: var(--navy); font-weight: 900; }
+.build-model { margin-top: 14px; border: 1px solid var(--line); border-radius: 9px; background: #fbfcfd; overflow: hidden; }
+.build-model > summary { padding: 17px 19px; color: var(--navy); font-weight: 900; cursor: pointer; }
+.build-model[open] > summary { border-bottom: 1px solid var(--line); }
 .final-actions { justify-content: flex-end; }
 .player-support { min-width: 0; padding: 23px 18px; border-left: 1px solid var(--line); background: #f4f7fa; }
 .support-title { display: flex; gap: 10px; align-items: center; margin-bottom: 13px; }
