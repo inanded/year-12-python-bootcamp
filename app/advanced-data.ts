@@ -19,7 +19,7 @@ export const ADVANCED_BADGE: Badge = {
   rules: [
     "This badge is optional. It does not count towards core course completion.",
     "The challenge is combining familiar skills, not using clever Python shortcuts.",
-    "Read the Cambridge pseudocode first and identify each module’s inputs, process and return value.",
+    "Draft a solution from the plain-English brief before revealing the Cambridge pseudocode.",
     "Test each module alone before the main program calls it.",
   ],
   pseudoExample: code`FUNCTION Contains(Target : STRING, Values : ARRAY[1:20] OF STRING) RETURNS BOOLEAN
@@ -43,6 +43,11 @@ ENDFUNCTION`,
       support: "Advanced, but still guided: the file structure, modules and exact tests are supplied.",
       scenario: "Supplier stock report",
       outcome: "Search a stock file and save a formatted report for one supplier.",
+      plainEnglish: [
+        "Read stock_as.txt as records of four lines: item number, description, supplier code and quantity.",
+        "Ask for a supplier code and collect every record belonging to that supplier.",
+        "Save a report containing the matching items, the number of matches and their total quantity.",
+      ],
       setup: [
         "Create a new folder called Advanced_1_Supplier_Report.",
         "Copy stock_as.txt into that folder. Do not rename or edit it.",
@@ -188,6 +193,11 @@ print("Report saved to supplier_report.txt")`,
       support: "Advanced: you are given the module behaviour, but must connect several searches yourself.",
       scenario: "Touchscreen centre finder",
       outcome: "Use directional searches of a 2D list to locate the centre of one touched area.",
+      plainEnglish: [
+        "Load the 6 by 11 touchscreen pattern from touch_grid.txt into a 2D list of integers.",
+        "Search from opposite edges to find the first and last touched positions, then calculate the centre.",
+        "Report both the Python position and the human-friendly row and column, while handling an empty row safely.",
+      ],
       setup: [
         "Create a new folder called Advanced_2_Touchscreen.",
         "Copy touch_grid.txt into that folder. Do not add spaces or commas to the file.",
@@ -361,6 +371,11 @@ else:
       support: "Highest AS challenge: the brief is precise, but you decide how the modules work together.",
       scenario: "Student project module analyser",
       outcome: "Read a pseudocode project, identify its modules, search them and save a module report.",
+      plainEnglish: [
+        "Read student_project.txt without removing blank lines because the original line numbers matter.",
+        "Identify every procedure and function declaration, storing its line number, type and full heading.",
+        "Count each module type, perform a case-insensitive partial search and save the complete audit to module_report.txt.",
+      ],
       setup: [
         "Create a new folder called Advanced_3_Module_Analyser.",
         "Copy student_project.txt into that folder. Do not change its lines: the supplied test uses their exact line numbers.",

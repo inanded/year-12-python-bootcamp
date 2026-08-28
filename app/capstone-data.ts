@@ -43,6 +43,11 @@ ENDFUNCTION`,
       support: "Use the complete Cambridge pseudocode and Python function headings supplied.",
       scenario: "School tournament results — Stage 1",
       outcome: "Load five competitors and four event scores, then display each total and average.",
+      plainEnglish: [
+        "Load five competitor names from names.txt and four scores per competitor from tournament_scores.txt.",
+        "Store the scores as a 2D list with one row for each competitor.",
+        "Use a function to calculate one competitor's total, then display every name, total and average.",
+      ],
       pseudocode: code`// Shared data used by the subroutine and main program
 CONSTANT CompetitorCount = 5
 CONSTANT EventCount = 4
@@ -157,6 +162,11 @@ for competitor in range(0, len(names)):
       support: "Keep your Bronze program. Add the supplied search and update design.",
       scenario: "School tournament results — Stage 2",
       outcome: "Find a competitor, validate a corrected score, update the 2D list and save it.",
+      plainEnglish: [
+        "Add a reusable linear search that finds a competitor by name and reports when the name is absent.",
+        "For a found competitor, accept only an event number from 1 to 4 and a replacement score from 0 to 20.",
+        "Update the correct cell in the 2D list and save every score to updated_scores.txt.",
+      ],
       pseudocode: code`FUNCTION LinearSearch(Target : STRING) RETURNS INTEGER
     DECLARE Position : INTEGER
     Position ← 1
@@ -272,6 +282,11 @@ else:
       support: "Keep Bronze and Silver. Complete the final stage, then submit one finished program.",
       scenario: "School tournament results — Final stage",
       outcome: "Calculate totals, sort a leaderboard and write a permanent report.",
+      plainEnglish: [
+        "Calculate and store one total for every competitor.",
+        "Sort the totals from highest to lowest; whenever totals swap, the matching names must swap too.",
+        "Write rank, name and total to leaderboard.txt, then display the winner clearly.",
+      ],
       pseudocode: code`DECLARE Totals : ARRAY[1:5] OF INTEGER
 
 FOR Competitor ← 1 TO CompetitorCount

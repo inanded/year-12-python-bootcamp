@@ -307,6 +307,7 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
   const badgeDone = countComplete(progress, taskKeys(badge));
   const nextBadge = BADGES[BADGES.findIndex((item) => item.id === badge.id) + 1];
   const keywords = KEYWORDS[badge.id] || [];
+  const independentBadge = ["algorithms", "problem-solver", "advanced-as"].includes(badge.id);
 
   return (
     <div className="badge-view">
@@ -337,7 +338,15 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
 
         <section className="translation-section">
           <div className="section-heading compact"><div><p className="eyebrow dark">Translation bridge</p><h2>Same algorithm, different notation</h2></div><p>Read left to right. Do not memorise a Python line until you understand what it does.</p></div>
-          <div className="code-bridge"><CodeBlock label="Cambridge pseudocode" value={badge.pseudoExample} /><b aria-hidden="true">→</b><CodeBlock label="Python equivalent" value={badge.pythonExample} /></div>
+          {independentBadge ? (
+            <div className="independent-bridge">
+              <div className="independence-callout"><strong>Higher-challenge approach</strong><p>Start from the description and decide how the algorithm should work. Open each example only after you have drafted your own idea.</p></div>
+              <details className="pseudocode-box"><summary>Step 1 · Reveal the Cambridge pseudocode example</summary><div className="reveal-warning">Before opening: identify the inputs, processing and outputs, then sketch the algorithm in your own pseudocode.</div><CodeBlock label="Cambridge pseudocode" value={badge.pseudoExample} /></details>
+              <details className="starter-box"><summary>Step 2 · Reveal the Python comparison</summary><div className="starter-warning">Open this after comparing your plan with the pseudocode. Explain each Python line before using it.</div><CodeBlock label="Python equivalent" value={badge.pythonExample} /></details>
+            </div>
+          ) : (
+            <div className="code-bridge"><CodeBlock label="Cambridge pseudocode" value={badge.pseudoExample} /><b aria-hidden="true">→</b><CodeBlock label="Python equivalent" value={badge.pythonExample} /></div>
+          )}
           {badge.id === "starter" && <div className="setup-callout"><strong>How to complete every task</strong><ol><li>Open the Python editor used in class.</li><li>Create a new file and save it before typing.</li><li>Type or adapt the supplied starting point.</li><li>Press Run and read the output area.</li><li>If an error appears, read the final line first and check the named line number.</li><li>Tick the task only when your own code passes the listed test.</li></ol></div>}
           {badge.id === "files" && <div className="download-callout"><div><strong>Before you start the file badge</strong><p>Download the supplied text files and keep them in the same folder as your Python program.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download practice files</a></div>}
           {badge.id === "problem-solver" && <div className="download-callout"><div><strong>Before you start the final problem</strong><p>Download names.txt and tournament_scores.txt. Keep both files in the same folder as your Python program.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download capstone files</a></div>}
@@ -365,7 +374,14 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
 
             {level.expectedOutput && <CodeBlock label="Known-good output using the supplied test file" value={level.expectedOutput} copyLabel="Copy expected output" />}
 
-            <div className="work-order"><span>Work in this order</span><ol><li>Read the pseudocode.</li><li>Try the first line yourself.</li><li>Reveal the starter only if you need a scaffold.</li><li>Complete and test one task at a time.</li><li>Use the model only after your own attempt.</li></ol></div>
+            {independentBadge && (
+              <section className="plain-english-brief" aria-label="Plain-English challenge brief">
+                <div><p className="eyebrow dark">Start here · no code supplied</p><h3>Plain-English challenge</h3><p>Work out the structure before revealing either example.</p></div>
+                <ul>{(level.plainEnglish || [level.outcome]).map((item) => <li key={item}>{item}</li>)}</ul>
+              </section>
+            )}
+
+            <div className="work-order"><span>Work in this order</span>{independentBadge ? <ol><li>Read the plain-English brief and identify the inputs, processing and outputs.</li><li>Draft your own pseudocode or structure chart.</li><li>Reveal the pseudocode and compare it with your plan.</li><li>Begin the Python yourself; reveal the starter only if needed.</li><li>Complete every test before comparing with the model.</li></ol> : <ol><li>Read the pseudocode.</li><li>Try the first line yourself.</li><li>Reveal the starter only if you need a scaffold.</li><li>Complete and test one task at a time.</li><li>Use the model only after your own attempt.</li></ol>}</div>
 
             {badge.id === "input" && level.id === "bronze" && (
               <section className="foundation-strip in-activity" aria-labelledby="input-foundation">
@@ -378,8 +394,12 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
               </section>
             )}
 
-            <CodeBlock label={badge.id === "problem-solver" || badge.id === "advanced-as" ? "Cambridge pseudocode for this stage" : "Pseudocode / design supplied"} value={level.pseudocode} copyLabel="Copy pseudocode" />
-            <details className="starter-box"><summary>Need a scaffold? Reveal the Python starting point</summary><div className="starter-warning">Try to translate at least the first line from the pseudocode before opening this. The starting point is incomplete: you still need to make the decisions and write the missing logic.</div><CodeBlock label="Incomplete Python starting point" value={level.pythonStarter} /></details>
+            {independentBadge ? (
+              <details className="pseudocode-box"><summary>Reveal 1 · Compare with a Cambridge pseudocode example</summary><div className="reveal-warning">Open this only after drafting your own solution. Compare the sequence, selection, iteration, data structures and modules with your plan; do not copy it without understanding it.</div><CodeBlock label="Cambridge pseudocode example" value={level.pseudocode} copyLabel="Copy pseudocode" /></details>
+            ) : (
+              <CodeBlock label="Pseudocode / design supplied" value={level.pseudocode} copyLabel="Copy pseudocode" />
+            )}
+            <details className="starter-box"><summary>{independentBadge ? "Reveal 2 · Show the incomplete Python starting point" : "Need a scaffold? Reveal the Python starting point"}</summary><div className="starter-warning">{independentBadge ? "Open this only after you have compared your own design with the pseudocode and attempted the first Python section. It supplies structure, not a completed solution." : "Try to translate at least the first line from the pseudocode before opening this. The starting point is incomplete: you still need to make the decisions and write the missing logic."}</div><CodeBlock label="Incomplete Python starting point" value={level.pythonStarter} /></details>
 
             <section className="task-list" aria-labelledby="tasks-heading">
               <div className="subheading"><div><p className="eyebrow dark">Build</p><h3 id="tasks-heading">Three checked tasks</h3></div><p>Tick a task only after the relevant code runs and passes its test.</p></div>

@@ -12,6 +12,7 @@ export type ChallengeLevel = {
   support: string;
   scenario: string;
   outcome: string;
+  plainEnglish?: string[];
   setup?: string[];
   deliverables?: string[];
   expectedOutput?: string;
@@ -1090,6 +1091,11 @@ while position < len(values) and found == False:
       {
         id: "bronze", label: "Bronze · Guided", support: "Complete a traceable linear search.",
         scenario: "Find a student ID", outcome: "Return the Python index or -1 when absent.",
+        plainEnglish: [
+          "Write a reusable search function that receives a list of student IDs and one target ID.",
+          "Check the IDs one at a time from the beginning of the list.",
+          "Return the matching Python index immediately, or -1 after every ID has been checked.",
+        ],
         pseudocode: code`FUNCTION LinearSearch(Values, Target) RETURNS INTEGER
     Position ← 1
     WHILE Position <= LENGTH(Values)
@@ -1125,6 +1131,11 @@ ENDFUNCTION`,
       {
         id: "silver", label: "Silver · Translate", support: "Build bubble sort with visible adjacent comparisons.",
         scenario: "Sort five scores", outcome: "Sort a list into ascending order.",
+        plainEnglish: [
+          "Write a function that sorts a list of scores from smallest to largest without using Python's built-in sort.",
+          "Compare adjacent scores and swap them when the left score is larger.",
+          "Repeat passes through the unsorted part of the list and make each pass visible while testing.",
+        ],
         pseudocode: code`FOR Pass ← 1 TO 4
     FOR Position ← 1 TO 5 - Pass
         IF Scores[Position] > Scores[Position + 1] THEN
@@ -1159,6 +1170,11 @@ NEXT Pass`,
       {
         id: "gold", label: "Gold · Apply", support: "Optimise, combine and justify the algorithms.",
         scenario: "Leaderboard lookup", outcome: "Sort scores efficiently and then find a requested score.",
+        plainEnglish: [
+          "Improve bubble sort so it stops when a complete pass makes no swaps.",
+          "Keep sorting and searching as separate reusable functions.",
+          "After sorting the leaderboard, ask for a score and report whether it exists and its Python index.",
+        ],
         pseudocode: code`Improve BubbleSort using a Swapped flag.
 Stop when a complete pass makes no swaps.
 After sorting, use LinearSearch to locate a target.
