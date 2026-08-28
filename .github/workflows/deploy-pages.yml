@@ -1,0 +1,69 @@
+name: Deploy Python Bootcamp to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: pages
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Get the site source
+        uses: actions/checkout@v4
+
+      - name: Install pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: Install Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build the static site
+        env:
+          NEXT_PUBLIC_BASE_PATH: /${{ github.event.repository.name }}
+        run: pnpm run build
+
+      - name: Prepare GitHub Pages asset paths
+        env:
+          REPOSITORY_NAME: ${{ github.event.repository.name }}
+        run: |
+          if [ -d "dist/client/${REPOSITORY_NAME}/_next" ]; then
+            cp -R "dist/client/${REPOSITORY_NAME}/_next" dist/client/_next
+          fi
+          test -f dist/client/index.html
+          find dist/client/_next/static/css -type f -name '*.css' -print -quit | grep -q .
+          test -f dist/client/python-bridge-practice-files.zip
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v5
+        with:
+          enablement: true
+
+      - name: Upload the site
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: dist/client
+
+      - name: Publish the site
+        id: deployment
+        uses: actions/deploy-pages@v4

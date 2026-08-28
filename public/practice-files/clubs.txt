@@ -1,0 +1,4 @@
+Robotics,12
+Basketball,18
+Debate,10
+Chess,16
