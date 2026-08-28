@@ -123,6 +123,7 @@ export default function Home() {
   const [lastLevelIndex, setLastLevelIndex] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
   const [reportMessage, setReportMessage] = useState("");
+  const [badgeCollectionOpen, setBadgeCollectionOpen] = useState(false);
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
@@ -193,6 +194,7 @@ export default function Home() {
 
   function showBadgeCollection() {
     setSelectedBadgeId(null);
+    setBadgeCollectionOpen(true);
     window.setTimeout(() => document.getElementById("badge-collection")?.scrollIntoView({ behavior: "smooth", block: "start" }), 0);
   }
 
@@ -323,6 +325,8 @@ export default function Home() {
           completeBadges={completeBadges}
           resumeBadge={resumeTarget.badge}
           resumeLevel={resumeTarget.levelIndex}
+          badgeCollectionOpen={badgeCollectionOpen}
+          onToggleBadgeCollection={() => setBadgeCollectionOpen((current) => !current)}
           onOpenBadge={openBadge}
           onDownload={downloadProgress}
           onUpload={uploadProgress}
@@ -333,12 +337,14 @@ export default function Home() {
   );
 }
 
-function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resumeLevel, onOpenBadge, onDownload, onUpload, onReset }: {
+function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resumeLevel, badgeCollectionOpen, onToggleBadgeCollection, onOpenBadge, onDownload, onUpload, onReset }: {
   progress: Progress;
   completeTasks: number;
   completeBadges: number;
   resumeBadge: Badge;
   resumeLevel: number;
+  badgeCollectionOpen: boolean;
+  onToggleBadgeCollection: () => void;
   onOpenBadge: (id: string, level?: number) => void;
   onDownload: () => void;
   onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -367,7 +373,7 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
         </aside>
       </section>
 
-      <BadgeCollection progress={progress} completeBadges={completeBadges} onOpenBadge={onOpenBadge} />
+      <BadgeCollection progress={progress} completeBadges={completeBadges} open={badgeCollectionOpen} onToggle={onToggleBadgeCollection} onOpenBadge={onOpenBadge} />
 
       <section className="roadmap" aria-labelledby="roadmap-title">
         <div className="section-heading">
@@ -409,38 +415,44 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
   );
 }
 
-function BadgeCollection({ progress, completeBadges, onOpenBadge }: {
+function BadgeCollection({ progress, completeBadges, open, onToggle, onOpenBadge }: {
   progress: Progress;
   completeBadges: number;
+  open: boolean;
+  onToggle: () => void;
   onOpenBadge: (id: string, level?: number) => void;
 }) {
   const earnedLevels = BADGES.reduce((total, badge) => total + badge.levels.filter((level) => countComplete(progress, taskKeys(badge, level)) === level.tasks.length).length, 0);
 
   return (
-    <section className="achievement-dashboard" id="badge-collection" aria-labelledby="badge-collection-title">
-      <div className="achievement-heading">
-        <div><p className="eyebrow dark">Your achievements</p><h2 id="badge-collection-title">Badge collection</h2><p>Each set of three working tasks earns a level. Complete Bronze, Silver and Gold to earn the full badge.</p></div>
+    <section className={`achievement-dashboard ${open ? "expanded" : "collapsed"}`} id="badge-collection" aria-labelledby="badge-collection-title">
+      <div className="badge-bar">
+        <div><p className="eyebrow dark">Your achievements</p><h2 id="badge-collection-title">My badges</h2></div>
         <div className="collection-summary" aria-label={`${completeBadges} core badges and ${earnedLevels} challenge levels earned`}>
           <span><strong>{completeBadges}</strong><small>core badges</small></span>
           <span><strong>{earnedLevels}</strong><small>levels earned</small></span>
         </div>
+        <button className="collection-toggle" type="button" aria-expanded={open} aria-controls="badge-collection-panel" onClick={onToggle}>{open ? "Hide badge collection" : "Show badge collection"}<span aria-hidden="true">{open ? "↑" : "↓"}</span></button>
       </div>
-      <div className="tier-key" aria-label="Badge colour key"><span className="key-locked">Not started</span><span className="key-working">Working on it</span><span className="key-bronze">Bronze</span><span className="key-silver">Silver</span><span className="key-gold">Gold</span></div>
-      <div className="medal-grid">
-        {BADGES.map((badge) => {
-          const total = taskKeys(badge).length;
-          const done = countComplete(progress, taskKeys(badge));
-          const tier = awardTier(done, total);
-          const nextLevel = firstIncompleteLevelIndex(progress, badge);
-          return (
-            <button className={`medal-card ${tier} ${badge.optional ? "advanced" : ""}`} type="button" onClick={() => onOpenBadge(badge.id, nextLevel)} key={badge.id} aria-label={`${badge.credential}. ${awardLabel(tier)}. ${done} of ${total} tasks complete.`}>
-              <AchievementMedal badge={badge} tier={tier} />
-              <span className="medal-copy"><strong>{badge.credential}</strong><small>{awardLabel(tier)}</small><span>{done} / {total} tasks</span></span>
-            </button>
-          );
-        })}
-      </div>
-      <p className="collection-note"><strong>Evidence rule:</strong> tick a task only after your own program runs and passes the stated tests. The saved Python file is your evidence; the dashboard records your progress.</p>
+      {open && <div className="badge-collection-panel" id="badge-collection-panel">
+        <div className="collection-explainer"><strong>How badges work</strong><span>Each set of three working tasks earns a level. Complete Bronze, Silver and Gold to earn the full badge.</span></div>
+        <div className="tier-key" aria-label="Badge colour key"><span className="key-locked">Not started</span><span className="key-working">Working on it</span><span className="key-bronze">Bronze</span><span className="key-silver">Silver</span><span className="key-gold">Gold</span></div>
+        <div className="medal-grid">
+          {BADGES.map((badge) => {
+            const total = taskKeys(badge).length;
+            const done = countComplete(progress, taskKeys(badge));
+            const tier = awardTier(done, total);
+            const nextLevel = firstIncompleteLevelIndex(progress, badge);
+            return (
+              <button className={`medal-card ${tier} ${badge.optional ? "advanced" : ""}`} type="button" onClick={() => onOpenBadge(badge.id, nextLevel)} key={badge.id} aria-label={`${badge.credential}. ${awardLabel(tier)}. ${done} of ${total} tasks complete.`}>
+                <AchievementMedal badge={badge} tier={tier} />
+                <span className="medal-copy"><strong>{badge.credential}</strong><small>{awardLabel(tier)}</small><span>{done} / {total} tasks</span></span>
+              </button>
+            );
+          })}
+        </div>
+        <p className="collection-note"><strong>Evidence rule:</strong> tick a task only after your own program runs and passes the stated tests. The saved Python file is your evidence; the dashboard records your progress.</p>
+      </div>}
     </section>
   );
 }
