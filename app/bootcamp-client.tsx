@@ -58,10 +58,20 @@ function awardTier(done: number, total: number): AwardTier {
 
 function awardLabel(tier: AwardTier) {
   if (tier === "gold") return "Gold badge · self-certified";
-  if (tier === "silver") return "Silver level · self-certified";
-  if (tier === "bronze") return "Bronze level · self-certified";
+  if (tier === "silver") return "Silver challenge · self-certified";
+  if (tier === "bronze") return "Bronze challenge · self-certified";
   if (tier === "working") return "Badge in progress";
   return "Not started";
+}
+
+function challengeStatus(done: number, total = 3) {
+  if (done === total) return "Self-certified";
+  if (done === 0) return "Not started";
+  return `In progress · ${done} of ${total} steps`;
+}
+
+function certifiedChallenges(progress: Progress, badge: Badge) {
+  return badge.levels.filter((level) => countComplete(progress, taskKeys(badge, level)) === level.tasks.length).length;
 }
 
 function AchievementMedal({ badge, tier, compact = false }: { badge: Badge; tier: AwardTier; compact?: boolean }) {
@@ -369,7 +379,7 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
             <li><span>1</span><div><strong>Read</strong> the pseudocode you already understand.</div></li>
             <li><span>2</span><div><strong>Translate</strong> the small Python differences.</div></li>
             <li><span>3</span><div><strong>Run and test</strong> your own Python file.</div></li>
-            <li><span>4</span><div><strong>Tick a task only after it works.</strong></div></li>
+            <li><span>4</span><div><strong>Tick each completion step only after it works.</strong></div></li>
           </ol>
         </aside>
       </section>
@@ -379,7 +389,7 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
       <section className="roadmap" aria-labelledby="roadmap-title">
         <div className="section-heading">
           <div><p className="eyebrow dark">Your pathway</p><h2 id="roadmap-title">Ten core badges, plus one optional advanced pathway.</h2></div>
-          <div className="dashboard-progress"><ProgressBar value={completeBadges} max={CORE_BADGES.length} label="Core badges complete" /><p>{completeTasks} of {TOTAL_TASKS} checked tasks are saved. Focus on the nine tasks in your current badge. Badge 11 is optional advanced work.</p></div>
+          <div className="dashboard-progress"><ProgressBar value={completeBadges} max={CORE_BADGES.length} label="Core badges complete" /><p>{completeTasks} of {TOTAL_TASKS} completion steps are saved. Each badge contains one Bronze, one Silver and one Gold challenge. Badge 11 is optional advanced work.</p></div>
         </div>
         <div className="badge-grid">
           {BADGES.map((badge) => {
@@ -394,11 +404,11 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
                 <div className="badge-card-top"><div className="badge-number">{badge.number}</div><span className="status">{status}</span></div>
                 <h3>{badge.title}</h3><p>{badge.short}</p>
                 <div className="mini-progress"><i style={{ width: `${Math.round((done / total) * 100)}%` }} /></div>
-                <div className="badge-meta"><span>{done} / {total} tasks</span>{badge.optional && <span>Does not affect core progress</span>}</div>
+                <div className="badge-meta"><span>{done} / {total} completion steps</span>{badge.optional && <span>Does not affect core progress</span>}</div>
                 <div className="levels">
                   {badge.levels.map((level) => {
                     const levelDone = countComplete(progress, taskKeys(badge, level));
-                    return <span className={levelDone === 3 ? "earned" : ""} key={level.id}>{level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold"} {levelDone}/3</span>;
+                    return <span className={levelDone === 3 ? "earned" : ""} key={level.id}>{level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold"} · {challengeStatus(levelDone)}</span>;
                   })}
                 </div>
                 <span className="card-button">{done > 0 ? "Continue badge" : isRecommended ? "Start here" : "Open badge"} <span>→</span></span>
@@ -423,20 +433,20 @@ function BadgeCollection({ progress, completeBadges, open, onToggle, onOpenBadge
   onToggle: () => void;
   onOpenBadge: (id: string, level?: number) => void;
 }) {
-  const earnedLevels = BADGES.reduce((total, badge) => total + badge.levels.filter((level) => countComplete(progress, taskKeys(badge, level)) === level.tasks.length).length, 0);
+  const completedChallenges = BADGES.reduce((total, badge) => total + certifiedChallenges(progress, badge), 0);
 
   return (
     <section className={`achievement-dashboard ${open ? "expanded" : "collapsed"}`} id="badge-collection" aria-labelledby="badge-collection-title">
       <div className="badge-bar">
         <div><p className="eyebrow dark">Your achievements</p><h2 id="badge-collection-title">My badges</h2></div>
-        <div className="collection-summary" aria-label={`${completeBadges} core badges and ${earnedLevels} challenge levels earned`}>
+        <div className="collection-summary" aria-label={`${completeBadges} core badges and ${completedChallenges} challenges self-certified`}>
           <span><strong>{completeBadges}</strong><small>core badges</small></span>
-          <span><strong>{earnedLevels}</strong><small>levels earned</small></span>
+          <span><strong>{completedChallenges}</strong><small>challenges certified</small></span>
         </div>
         <button className="collection-toggle" type="button" aria-expanded={open} aria-controls="badge-collection-panel" onClick={onToggle}>{open ? "Hide badge collection" : "Show badge collection"}<span aria-hidden="true">{open ? "↑" : "↓"}</span></button>
       </div>
       {open && <div className="badge-collection-panel" id="badge-collection-panel">
-        <div className="collection-explainer"><strong>How badges work</strong><span>Badges are self-certified. Each set of three tasks earns a level after you confirm that your own program runs, passes the listed tests and has been saved.</span></div>
+        <div className="collection-explainer"><strong>How badges work</strong><span>Each badge has exactly three challenges: one Bronze, one Silver and one Gold. Each challenge contains three completion steps—not three separate activities. Finish and self-certify all three challenges to earn the full badge.</span></div>
         <div className="tier-key" aria-label="Badge colour key"><span className="key-locked">Not started</span><span className="key-working">Working on it</span><span className="key-bronze">Bronze</span><span className="key-silver">Silver</span><span className="key-gold">Gold</span></div>
         <div className="medal-grid">
           {BADGES.map((badge) => {
@@ -444,10 +454,11 @@ function BadgeCollection({ progress, completeBadges, open, onToggle, onOpenBadge
             const done = countComplete(progress, taskKeys(badge));
             const tier = awardTier(done, total);
             const nextLevel = firstIncompleteLevelIndex(progress, badge);
+            const challengesDone = certifiedChallenges(progress, badge);
             return (
-              <button className={`medal-card ${tier} ${badge.optional ? "advanced" : ""}`} type="button" onClick={() => onOpenBadge(badge.id, nextLevel)} key={badge.id} aria-label={`${badge.credential}. ${awardLabel(tier)}. ${done} of ${total} tasks complete.`}>
+              <button className={`medal-card ${tier} ${badge.optional ? "advanced" : ""}`} type="button" onClick={() => onOpenBadge(badge.id, nextLevel)} key={badge.id} aria-label={`${badge.credential}. ${awardLabel(tier)}. ${challengesDone} of 3 challenges self-certified.`}>
                 <AchievementMedal badge={badge} tier={tier} />
-                <span className="medal-copy"><strong>{badge.credential}</strong><small>{awardLabel(tier)}</small><span>{done} / {total} tasks</span></span>
+                <span className="medal-copy"><strong>{badge.credential}</strong><small>{awardLabel(tier)}</small><span>{challengesDone} / 3 challenges</span></span>
               </button>
             );
           })}
@@ -473,7 +484,6 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
 }) {
   const [pendingCertificationKey, setPendingCertificationKey] = useState<string | null>(null);
   const levelDone = countComplete(progress, taskKeys(badge, level));
-  const badgeDone = countComplete(progress, taskKeys(badge));
   const nextBadge = BADGES[BADGES.findIndex((item) => item.id === badge.id) + 1];
   const keywords = KEYWORDS[badge.id] || [];
   const independentBadge = ["algorithms", "problem-solver", "advanced-as"].includes(badge.id);
@@ -504,18 +514,16 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
       <aside className="course-nav">
         <button className="back-link" type="button" onClick={onBack}>← Course pathway</button>
         <p className="nav-label">Badges</p>
-        {BADGES.map((item) => {
-          const done = countComplete(progress, taskKeys(item));
-          return <button type="button" className={item.id === badge.id ? "selected" : ""} onClick={() => onOpenBadge(item.id, firstIncompleteLevelIndex(progress, item))} key={item.id}><span>{item.number}</span><div>{item.title}<small>{done} / {taskKeys(item).length} tasks{item.optional ? " · optional" : ""}</small></div></button>;
-        })}
+        {BADGES.map((item) => <button type="button" className={item.id === badge.id ? "selected" : ""} onClick={() => onOpenBadge(item.id, firstIncompleteLevelIndex(progress, item))} key={item.id}><span>{item.number}</span><div>{item.title}<small>{certifiedChallenges(progress, item)} / 3 challenges{item.optional ? " · optional" : ""}</small></div></button>)}
       </aside>
 
       <div className="badge-main">
         <section className="badge-banner">
           <div><p className="eyebrow">Badge {badge.number} · {badge.credential}</p><h1>{badge.title}</h1><p>{badge.short}</p></div>
-          <div className="badge-facts"><span><b>Before this</b>{badge.prerequisite}</span><span><b>Progress</b>{badgeDone} / {taskKeys(badge).length} tasks</span>{badge.optional && <span><b>Pathway</b>Optional advanced work</span>}</div>
+          <div className="badge-facts"><span><b>Before this</b>{badge.prerequisite}</span><span><b>Progress</b>{certifiedChallenges(progress, badge)} / 3 challenges self-certified</span>{badge.optional && <span><b>Pathway</b>Optional advanced work</span>}</div>
         </section>
         <div className="badge-shortcuts"><span>You are in Badge {badge.number} · {level.label}</span><a href="#current-challenge">Jump to current challenge ↓</a></div>
+        <section className="challenge-structure" aria-label="Badge structure"><strong>One badge · three challenges</strong><div><span><b>Bronze</b> one guided challenge</span><span><b>Silver</b> one translation challenge</span><span><b>Gold</b> one application challenge</span></div><p>Each challenge has three completion steps. The steps are a checklist for one piece of work, not three separate activities.</p></section>
 
         <section className="keyword-section" aria-labelledby="keyword-title">
           <div><p className="eyebrow dark">Read these first</p><h2 id="keyword-title">Keywords for this badge</h2><p>These words will appear in the pseudocode, Python or task instructions.</p></div>
@@ -530,7 +538,7 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
         {!independentBadge && <section className="translation-section">
           <div className="section-heading compact"><div><p className="eyebrow dark">Translation bridge</p><h2>Same algorithm, different notation</h2></div><p>Read left to right. Do not memorise a Python line until you understand what it does.</p></div>
           <div className="code-bridge"><CodeBlock label="Cambridge pseudocode" value={badge.pseudoExample} /><b aria-hidden="true">→</b><CodeBlock label="Python equivalent" value={badge.pythonExample} /></div>
-          {badge.id === "starter" && <div className="setup-callout"><strong>How to complete every task</strong><ol><li>Open the Python editor used in class.</li><li>Create a new file and save it before typing.</li><li>Type or adapt the supplied starting point.</li><li>Press Run and read the output area.</li><li>If an error appears, read the final line first and check the named line number.</li><li>Tick the task only when your own code passes the listed test.</li></ol></div>}
+          {badge.id === "starter" && <div className="setup-callout"><strong>How to complete every challenge</strong><ol><li>Open the Python editor used in class.</li><li>Create a new file and save it before typing.</li><li>Type or adapt the supplied starting point.</li><li>Press Run and read the output area.</li><li>If an error appears, read the final line first and check the named line number.</li><li>Tick each completion step only when your own code passes the relevant test.</li></ol></div>}
           {badge.id === "files" && <div className="download-callout"><div><strong>Before you start the file badge</strong><p>Download the supplied text files and keep them in the same folder as your Python program.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download practice files</a></div>}
         </section>}
 
@@ -542,12 +550,12 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
             {badge.levels.map((item, index) => {
               const done = countComplete(progress, taskKeys(badge, item));
               const tabId = `level-tab-${badge.id}-${item.id}`;
-              return <button type="button" role="tab" id={tabId} aria-controls={`level-panel-${badge.id}-${item.id}`} aria-selected={index === levelIndex} tabIndex={index === levelIndex ? 0 : -1} className={index === levelIndex ? "selected" : ""} onClick={() => onSelectLevel(index)} onKeyDown={(event) => { let next = index; if (event.key === "ArrowRight") next = (index + 1) % badge.levels.length; else if (event.key === "ArrowLeft") next = (index - 1 + badge.levels.length) % badge.levels.length; else if (event.key === "Home") next = 0; else if (event.key === "End") next = badge.levels.length - 1; else return; event.preventDefault(); onSelectLevel(next); window.requestAnimationFrame(() => document.getElementById(`level-tab-${badge.id}-${badge.levels[next].id}`)?.focus()); }} key={item.id}><span>{item.id}</span><strong>{item.label.split(" · ")[1]}</strong><small>{index === levelIndex ? "Current · " : ""}{done} / 3 complete</small></button>;
+              return <button type="button" role="tab" id={tabId} aria-controls={`level-panel-${badge.id}-${item.id}`} aria-selected={index === levelIndex} tabIndex={index === levelIndex ? 0 : -1} className={index === levelIndex ? "selected" : ""} onClick={() => onSelectLevel(index)} onKeyDown={(event) => { let next = index; if (event.key === "ArrowRight") next = (index + 1) % badge.levels.length; else if (event.key === "ArrowLeft") next = (index - 1 + badge.levels.length) % badge.levels.length; else if (event.key === "Home") next = 0; else if (event.key === "End") next = badge.levels.length - 1; else return; event.preventDefault(); onSelectLevel(next); window.requestAnimationFrame(() => document.getElementById(`level-tab-${badge.id}-${badge.levels[next].id}`)?.focus()); }} key={item.id}><span>{item.id}</span><strong>{item.label.split(" · ")[1]} challenge</strong><small>{index === levelIndex ? "Current · " : ""}{challengeStatus(done)}</small></button>;
             })}
           </div>
 
           <article className={`mission-card ${level.id}`} role="tabpanel" id={`level-panel-${badge.id}-${level.id}`} aria-labelledby={`level-tab-${badge.id}-${level.id}`} tabIndex={0}>
-            <div className="mission-head"><div><p>{level.label}</p><h2>{level.scenario}</h2><span>{level.support}</span></div><ProgressBar value={levelDone} max={3} label="This level" /></div>
+            <div className="mission-head"><div><p>{level.label} challenge</p><h2>{level.scenario}</h2><span>{level.support}</span></div><ProgressBar value={levelDone} max={3} label="Challenge steps" /></div>
             <div className="outcome"><strong>Finished outcome</strong><p>{level.outcome}</p></div>
 
             {independentBadge && (
@@ -587,9 +595,9 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
             <details className="starter-box"><summary>{independentBadge ? "Reveal 2 · Show the incomplete Python starting point" : "Need a scaffold? Reveal the Python starting point"}</summary><div className="starter-warning">{independentBadge ? "Open this only after you have compared your own design with the pseudocode and attempted the first Python section. It supplies structure, not a completed solution." : "Try to translate at least the first line from the pseudocode before opening this. The starting point is incomplete: you still need to make the decisions and write the missing logic."}</div><CodeBlock label="Incomplete Python starting point" value={level.pythonStarter} /></details>
 
             <section className="task-list" aria-labelledby="tasks-heading">
-              <div className="subheading"><div><p className="eyebrow dark">Build</p><h3 id="tasks-heading">Three checked tasks</h3></div><p>Tick a task only after the relevant code runs and passes its test.</p></div>
+              <div className="subheading"><div><p className="eyebrow dark">Build one program</p><h3 id="tasks-heading">Three completion steps</h3></div><p>These are three steps within this one {tierName} challenge. Tick each step only after the relevant code works.</p></div>
               <div className="self-certification-notice">
-                <div><span aria-hidden="true">✓</span><div><strong>These badges are self-certified</strong><p>The site cannot inspect your Python code. Your third tick will ask you to confirm your evidence before awarding this level.</p></div></div>
+                <div><span aria-hidden="true">✓</span><div><strong>This challenge is self-certified</strong><p>The site cannot inspect your Python code. Completing the third step asks you to confirm your evidence before awarding this challenge.</p></div></div>
                 <ol><li>My own program runs.</li><li>It passes every listed test.</li><li>I have saved the Python file.</li></ol>
               </div>
               {level.tasks.map((task, index) => {
@@ -618,11 +626,11 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
               <details className="model-box"><summary>Compare with the model Python answer</summary><div className="model-warning">Use this after you have run and tested your own attempt. A different working solution can still be correct.</div><CodeBlock label="Model Python" value={level.model} /><h4>Why this works</h4><ul>{level.modelNotes.map((note) => <li key={note}>{note}</li>)}</ul></details>
             </div>
 
-            {levelDone === 3 && <div className={`credential-earned ${level.id}`} role="status"><AchievementMedal badge={badge} tier={level.id} compact /><div><strong>{tierName} level self-certified</strong><p>You confirmed that your program runs, passes the tests and has been saved. It is now shown in your badge collection.</p></div><button type="button" onClick={onShowBadges}>View my badges</button></div>}
+            {levelDone === 3 && <div className={`credential-earned ${level.id}`} role="status"><AchievementMedal badge={badge} tier={level.id} compact /><div><strong>{tierName} challenge self-certified</strong><p>You confirmed that this one program runs, passes the tests and has been saved. The challenge is now shown in your badge collection.</p></div><button type="button" onClick={onShowBadges}>View my badges</button></div>}
 
             <div className="mission-actions">
               {levelIndex > 0 && <button type="button" onClick={() => onSelectLevel(levelIndex - 1)}>← Previous level</button>}
-              {levelIndex < badge.levels.length - 1 && <button className="primary-small" type="button" onClick={() => { onSelectLevel(levelIndex + 1); window.scrollTo({ top: 520, behavior: "smooth" }); }}>Next challenge level →</button>}
+              {levelIndex < badge.levels.length - 1 && <button className="primary-small" type="button" onClick={() => { onSelectLevel(levelIndex + 1); window.scrollTo({ top: 520, behavior: "smooth" }); }}>Next challenge: {badge.levels[levelIndex + 1].id === "silver" ? "Silver" : "Gold"} →</button>}
               {levelIndex === badge.levels.length - 1 && nextBadge && <button className="primary-small" type="button" onClick={() => onOpenBadge(nextBadge.id, firstIncompleteLevelIndex(progress, nextBadge))}>Next badge: {nextBadge.title} →</button>}
             </div>
           </article>
