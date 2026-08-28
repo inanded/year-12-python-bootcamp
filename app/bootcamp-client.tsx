@@ -57,9 +57,9 @@ function awardTier(done: number, total: number): AwardTier {
 }
 
 function awardLabel(tier: AwardTier) {
-  if (tier === "gold") return "Gold badge earned";
-  if (tier === "silver") return "Silver level earned";
-  if (tier === "bronze") return "Bronze level earned";
+  if (tier === "gold") return "Gold badge · self-certified";
+  if (tier === "silver") return "Silver level · self-certified";
+  if (tier === "bronze") return "Bronze level · self-certified";
   if (tier === "working") return "Badge in progress";
   return "Not started";
 }
@@ -212,6 +212,7 @@ export default function Home() {
       lastLevelIndex,
       progress,
       summary: {
+        awardMethod: "self-certified",
         coreTasks: `${completeTasks} / ${TOTAL_TASKS}`,
         coreBadges: `${completeBadges} / ${CORE_BADGES.length}`,
         badges: BADGES.map((badge) => {
@@ -435,7 +436,7 @@ function BadgeCollection({ progress, completeBadges, open, onToggle, onOpenBadge
         <button className="collection-toggle" type="button" aria-expanded={open} aria-controls="badge-collection-panel" onClick={onToggle}>{open ? "Hide badge collection" : "Show badge collection"}<span aria-hidden="true">{open ? "↑" : "↓"}</span></button>
       </div>
       {open && <div className="badge-collection-panel" id="badge-collection-panel">
-        <div className="collection-explainer"><strong>How badges work</strong><span>Each set of three working tasks earns a level. Complete Bronze, Silver and Gold to earn the full badge.</span></div>
+        <div className="collection-explainer"><strong>How badges work</strong><span>Badges are self-certified. Each set of three tasks earns a level after you confirm that your own program runs, passes the listed tests and has been saved.</span></div>
         <div className="tier-key" aria-label="Badge colour key"><span className="key-locked">Not started</span><span className="key-working">Working on it</span><span className="key-bronze">Bronze</span><span className="key-silver">Silver</span><span className="key-gold">Gold</span></div>
         <div className="medal-grid">
           {BADGES.map((badge) => {
@@ -470,11 +471,26 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
   onDownload: () => void;
   onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
+  const [pendingCertificationKey, setPendingCertificationKey] = useState<string | null>(null);
   const levelDone = countComplete(progress, taskKeys(badge, level));
   const badgeDone = countComplete(progress, taskKeys(badge));
   const nextBadge = BADGES[BADGES.findIndex((item) => item.id === badge.id) + 1];
   const keywords = KEYWORDS[badge.id] || [];
   const independentBadge = ["algorithms", "problem-solver", "advanced-as"].includes(badge.id);
+  const tierName = level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold";
+
+  function requestTaskToggle(key: string) {
+    if (!progress[key] && levelDone === level.tasks.length - 1) {
+      setPendingCertificationKey(key);
+      return;
+    }
+    onToggleTask(key);
+  }
+
+  function confirmCertification() {
+    if (pendingCertificationKey) onToggleTask(pendingCertificationKey);
+    setPendingCertificationKey(null);
+  }
 
   return (
     <div className="badge-view">
@@ -572,11 +588,15 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
 
             <section className="task-list" aria-labelledby="tasks-heading">
               <div className="subheading"><div><p className="eyebrow dark">Build</p><h3 id="tasks-heading">Three checked tasks</h3></div><p>Tick a task only after the relevant code runs and passes its test.</p></div>
+              <div className="self-certification-notice">
+                <div><span aria-hidden="true">✓</span><div><strong>These badges are self-certified</strong><p>The site cannot inspect your Python code. Your third tick will ask you to confirm your evidence before awarding this level.</p></div></div>
+                <ol><li>My own program runs.</li><li>It passes every listed test.</li><li>I have saved the Python file.</li></ol>
+              </div>
               {level.tasks.map((task, index) => {
                 const key = taskKey(badge, level, index);
                 return (
                   <label className={`task-row ${progress[key] ? "done" : ""}`} key={key}>
-                    <input type="checkbox" checked={!!progress[key]} onChange={() => onToggleTask(key)} />
+                    <input type="checkbox" checked={!!progress[key]} onChange={() => requestTaskToggle(key)} />
                     <span className="check-box" aria-hidden="true">{progress[key] ? "✓" : index + 1}</span>
                     <span><strong>{task.title}</strong><small>{task.instruction}</small></span>
                   </label>
@@ -598,7 +618,7 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
               <details className="model-box"><summary>Compare with the model Python answer</summary><div className="model-warning">Use this after you have run and tested your own attempt. A different working solution can still be correct.</div><CodeBlock label="Model Python" value={level.model} /><h4>Why this works</h4><ul>{level.modelNotes.map((note) => <li key={note}>{note}</li>)}</ul></details>
             </div>
 
-            {levelDone === 3 && <div className={`credential-earned ${level.id}`}><AchievementMedal badge={badge} tier={level.id} compact /><div><strong>{level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold"} level earned</strong><p>Added to your badge collection. Your working Python file is the evidence.</p></div><button type="button" onClick={onShowBadges}>View my badges</button></div>}
+            {levelDone === 3 && <div className={`credential-earned ${level.id}`} role="status"><AchievementMedal badge={badge} tier={level.id} compact /><div><strong>{tierName} level self-certified</strong><p>You confirmed that your program runs, passes the tests and has been saved. It is now shown in your badge collection.</p></div><button type="button" onClick={onShowBadges}>View my badges</button></div>}
 
             <div className="mission-actions">
               {levelIndex > 0 && <button type="button" onClick={() => onSelectLevel(levelIndex - 1)}>← Previous level</button>}
@@ -608,6 +628,16 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, o
           </article>
         </section>
       </div>
+      {pendingCertificationKey && <div className="certification-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setPendingCertificationKey(null); }}>
+        <section className="certification-dialog" role="dialog" aria-modal="true" aria-labelledby="certification-title" onKeyDown={(event) => { if (event.key === "Escape") setPendingCertificationKey(null); }}>
+          <p className="eyebrow dark">Self-certification</p>
+          <h2 id="certification-title">Claim your {tierName} level?</h2>
+          <p>This site cannot inspect or mark your Python code. Confirm only when all three statements are true.</p>
+          <ul><li>My own program runs without an unresolved error.</li><li>It passes every test listed in this activity.</li><li>I have saved the Python file as evidence.</li></ul>
+          <p className="certification-consequence">After confirmation, the {tierName} level will appear in <strong>My badges</strong>. You can remove it later by unticking a task.</p>
+          <div><button type="button" onClick={() => setPendingCertificationKey(null)} autoFocus>Not yet — return to my code</button><button className="confirm-claim" type="button" onClick={confirmCertification}>Confirm and claim {tierName}</button></div>
+        </section>
+      </div>}
     </div>
   );
 }
