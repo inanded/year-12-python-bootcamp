@@ -5,6 +5,8 @@ import { BADGES, TOTAL_TASKS, type Badge, type ChallengeLevel } from "./course-d
 import { KEYWORDS } from "./keyword-data";
 
 const STORAGE_KEY = "python-bridge-progress-v1";
+const CERTIFICATION_STORAGE_KEY = "python-bridge-certifications-v1";
+const TEST_STORAGE_KEY = "python-bridge-tests-v1";
 const LAST_BADGE_KEY = "python-bridge-last-badge-v1";
 const LAST_LEVEL_KEY = "python-bridge-last-level-v1";
 const PUBLIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
@@ -20,12 +22,24 @@ function taskKeys(badge: Badge, level?: ChallengeLevel) {
   return levels.flatMap((item) => item.tasks.map((_, index) => taskKey(badge, item, index)));
 }
 
+function certificationKey(badge: Badge, level: ChallengeLevel) {
+  return `${badge.id}:${level.id}`;
+}
+
+function testKey(badge: Badge, level: ChallengeLevel, testIndex: number) {
+  return `${badge.id}:${level.id}:${testIndex}`;
+}
+
+function testKeys(badge: Badge, level: ChallengeLevel) {
+  return level.tests.map((_, index) => testKey(badge, level, index));
+}
+
 function countComplete(progress: Progress, keys: string[]) {
   return keys.filter((key) => progress[key]).length;
 }
 
-function firstIncompleteLevelIndex(progress: Progress, badge: Badge) {
-  const index = badge.levels.findIndex((level) => countComplete(progress, taskKeys(badge, level)) < level.tasks.length);
+function firstIncompleteLevelIndex(certifications: Progress, badge: Badge) {
+  const index = badge.levels.findIndex((level) => !certifications[certificationKey(badge, level)]);
   return index === -1 ? Math.max(0, badge.levels.length - 1) : index;
 }
 
@@ -48,11 +62,11 @@ const BADGE_MARKS: Record<string, string> = {
   "advanced-as": "AS",
 };
 
-function awardTier(done: number, total: number): AwardTier {
-  if (done === total) return "gold";
-  if (done >= 6) return "silver";
-  if (done >= 3) return "bronze";
-  if (done > 0) return "working";
+function awardTier(challengesDone: number, hasStarted: boolean): AwardTier {
+  if (challengesDone >= 3) return "gold";
+  if (challengesDone === 2) return "silver";
+  if (challengesDone === 1) return "bronze";
+  if (hasStarted) return "working";
   return "locked";
 }
 
@@ -64,15 +78,17 @@ function awardLabel(tier: AwardTier) {
   return "Not started";
 }
 
-function challengeStatus(done: number, total = 3) {
-  if (done === total) return "Self-certified";
+function challengeStatus(done: number, certified = false, total = 3) {
+  if (certified) return "Self-certified";
   if (done === 0) return "Not started";
   return `In progress · ${done} of ${total} steps`;
 }
 
-function certifiedChallenges(progress: Progress, badge: Badge) {
-  return badge.levels.filter((level) => countComplete(progress, taskKeys(badge, level)) === level.tasks.length).length;
+function certifiedChallenges(certifications: Progress, badge: Badge) {
+  return badge.levels.filter((level) => certifications[certificationKey(badge, level)]).length;
 }
+
+const PLAYER_STAGES = ["Understand", "Plan", "Build", "Test", "Claim"] as const;
 
 function AchievementMedal({ badge, tier, compact = false }: { badge: Badge; tier: AwardTier; compact?: boolean }) {
   return (
@@ -127,6 +143,8 @@ function ProgressBar({ value, max, label }: { value: number; max: number; label:
 
 export default function Home() {
   const [progress, setProgress] = useState<Progress>({});
+  const [certifications, setCertifications] = useState<Progress>({});
+  const [testProgress, setTestProgress] = useState<Progress>({});
   const [selectedBadgeId, setSelectedBadgeId] = useState<string | null>(null);
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [lastBadgeId, setLastBadgeId] = useState<string | null>(null);
@@ -137,11 +155,31 @@ export default function Home() {
 
   useEffect(() => {
     const timer = window.setTimeout(() => {
+      let restoredProgress: Progress = {};
       try {
-        const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
-        setProgress(saved);
+        restoredProgress = JSON.parse(localStorage.getItem(STORAGE_KEY) || "{}");
+        setProgress(restoredProgress);
       } catch {
         setProgress({});
+      }
+      try {
+        const savedCertifications = localStorage.getItem(CERTIFICATION_STORAGE_KEY);
+        if (savedCertifications) {
+          setCertifications(JSON.parse(savedCertifications));
+        } else {
+          const migrated: Progress = {};
+          BADGES.forEach((badge) => badge.levels.forEach((level) => {
+            if (countComplete(restoredProgress, taskKeys(badge, level)) === level.tasks.length) migrated[certificationKey(badge, level)] = true;
+          }));
+          setCertifications(migrated);
+        }
+      } catch {
+        setCertifications({});
+      }
+      try {
+        setTestProgress(JSON.parse(localStorage.getItem(TEST_STORAGE_KEY) || "{}"));
+      } catch {
+        setTestProgress({});
       }
       setLastBadgeId(localStorage.getItem(LAST_BADGE_KEY));
       const savedLevel = Number.parseInt(localStorage.getItem(LAST_LEVEL_KEY) || "", 10);
@@ -155,8 +193,17 @@ export default function Home() {
     if (ready) localStorage.setItem(STORAGE_KEY, JSON.stringify(progress));
   }, [progress, ready]);
 
+  useEffect(() => {
+    if (ready) localStorage.setItem(CERTIFICATION_STORAGE_KEY, JSON.stringify(certifications));
+  }, [certifications, ready]);
+
+  useEffect(() => {
+    if (ready) localStorage.setItem(TEST_STORAGE_KEY, JSON.stringify(testProgress));
+  }, [testProgress, ready]);
+
   const completeTasks = countComplete(progress, CORE_TASK_KEYS);
-  const completeBadges = CORE_BADGES.filter((badge) => countComplete(progress, taskKeys(badge)) === taskKeys(badge).length).length;
+  const completeChallenges = CORE_BADGES.reduce((total, badge) => total + certifiedChallenges(certifications, badge), 0);
+  const completeBadges = CORE_BADGES.filter((badge) => certifiedChallenges(certifications, badge) === badge.levels.length).length;
   const selectedBadge = BADGES.find((badge) => badge.id === selectedBadgeId) || null;
   const currentLevel = selectedBadge?.levels[selectedLevel];
 
@@ -165,21 +212,21 @@ export default function Home() {
     if (lastBadge) {
       const done = countComplete(progress, taskKeys(lastBadge));
       const validStoredLevel = lastLevelIndex !== null && !!lastBadge.levels[lastLevelIndex];
-      if (done > 0 && done < taskKeys(lastBadge).length) {
-        return { badge: lastBadge, levelIndex: validStoredLevel ? lastLevelIndex : firstIncompleteLevelIndex(progress, lastBadge) };
+      if ((done > 0 || certifiedChallenges(certifications, lastBadge) > 0) && certifiedChallenges(certifications, lastBadge) < 3) {
+        return { badge: lastBadge, levelIndex: validStoredLevel ? lastLevelIndex : firstIncompleteLevelIndex(certifications, lastBadge) };
       }
     }
 
     const partialBadge = BADGES.find((badge) => {
       const done = countComplete(progress, taskKeys(badge));
-      return done > 0 && done < taskKeys(badge).length;
+      return done > 0 && certifiedChallenges(certifications, badge) < 3;
     });
     const badge = partialBadge
-      || CORE_BADGES.find((item) => countComplete(progress, taskKeys(item)) < taskKeys(item).length)
-      || BADGES.find((item) => item.optional && countComplete(progress, taskKeys(item)) < taskKeys(item).length)
+      || CORE_BADGES.find((item) => certifiedChallenges(certifications, item) < 3)
+      || BADGES.find((item) => item.optional && certifiedChallenges(certifications, item) < 3)
       || BADGES[0];
-    return { badge, levelIndex: firstIncompleteLevelIndex(progress, badge) };
-  }, [progress, lastBadgeId, lastLevelIndex]);
+    return { badge, levelIndex: firstIncompleteLevelIndex(certifications, badge) };
+  }, [progress, certifications, lastBadgeId, lastLevelIndex]);
 
   function openBadge(id: string, level = 0) {
     setSelectedBadgeId(id);
@@ -212,26 +259,43 @@ export default function Home() {
     setProgress((current) => ({ ...current, [key]: !current[key] }));
   }
 
+  function toggleTest(key: string) {
+    setTestProgress((current) => ({ ...current, [key]: !current[key] }));
+  }
+
+  function setChallengeCertification(key: string, value: boolean) {
+    setCertifications((current) => {
+      const next = { ...current };
+      if (value) next[key] = true;
+      else delete next[key];
+      return next;
+    });
+  }
+
   function downloadProgress() {
     const report = {
       format: "python-bridge-progress",
-      version: 3,
+      version: 4,
       course: "Python Bootcamp · Year 12",
       savedAt: new Date().toISOString(),
       lastBadgeId,
       lastLevelIndex,
       progress,
+      certifications,
+      testProgress,
       summary: {
         awardMethod: "self-certified",
         coreTasks: `${completeTasks} / ${TOTAL_TASKS}`,
         coreBadges: `${completeBadges} / ${CORE_BADGES.length}`,
         badges: BADGES.map((badge) => {
-        const done = countComplete(progress, taskKeys(badge));
+          const done = countComplete(progress, taskKeys(badge));
+          const challenges = certifiedChallenges(certifications, badge);
           return {
             number: badge.number,
             title: badge.title,
             optional: !!badge.optional,
             complete: `${done} / ${taskKeys(badge).length}`,
+            challenges: `${challenges} / 3 self-certified`,
           };
         }),
       },
@@ -264,6 +328,28 @@ export default function Home() {
       }
       setProgress(restored);
 
+      const allowedCertificationKeys = new Set(BADGES.flatMap((badge) => badge.levels.map((level) => certificationKey(badge, level))));
+      const restoredCertifications: Progress = {};
+      if (typeof report.certifications === "object" && report.certifications !== null) {
+        for (const [key, value] of Object.entries(report.certifications)) {
+          if (allowedCertificationKeys.has(key) && value === true) restoredCertifications[key] = true;
+        }
+      } else {
+        BADGES.forEach((badge) => badge.levels.forEach((level) => {
+          if (countComplete(restored, taskKeys(badge, level)) === level.tasks.length) restoredCertifications[certificationKey(badge, level)] = true;
+        }));
+      }
+      setCertifications(restoredCertifications);
+
+      const allowedTestKeys = new Set(BADGES.flatMap((badge) => badge.levels.flatMap((level) => testKeys(badge, level))));
+      const restoredTests: Progress = {};
+      if (typeof report.testProgress === "object" && report.testProgress !== null) {
+        for (const [key, value] of Object.entries(report.testProgress)) {
+          if (allowedTestKeys.has(key) && value === true) restoredTests[key] = true;
+        }
+      }
+      setTestProgress(restoredTests);
+
       const restoredLastBadge = BADGES.find((badge) => badge.id === report.lastBadgeId)?.id || null;
       const restoredBadge = BADGES.find((badge) => badge.id === restoredLastBadge);
       const requestedLevel = Number.isInteger(report.lastLevelIndex) ? report.lastLevelIndex : 0;
@@ -286,6 +372,10 @@ export default function Home() {
   function resetProgress() {
     if (window.confirm("Clear every completed task on this device? Your Python files will not be affected.")) {
       setProgress({});
+      setCertifications({});
+      setTestProgress({});
+      localStorage.removeItem(CERTIFICATION_STORAGE_KEY);
+      localStorage.removeItem(TEST_STORAGE_KEY);
       localStorage.removeItem(LAST_BADGE_KEY);
       localStorage.removeItem(LAST_LEVEL_KEY);
       setLastBadgeId(null);
@@ -304,8 +394,8 @@ export default function Home() {
         {selectedBadge && currentLevel && <div className="header-context" aria-label={`Current position: Badge ${selectedBadge.number}, ${selectedBadge.title}, ${currentLevel.label}`}><span>Badge {selectedBadge.number}</span><strong>{selectedBadge.title}</strong><small>{currentLevel.label}</small></div>}
         <div className="header-actions">
           <div className="header-progress">
-            <span>{completeBadges} of {CORE_BADGES.length} core badges</span>
-            <div><i style={{ width: `${Math.round((completeTasks / TOTAL_TASKS) * 100)}%` }} /></div>
+            <span>{completeChallenges} of {CORE_BADGES.length * 3} core challenges claimed</span>
+            <div><i style={{ width: `${Math.round((completeChallenges / (CORE_BADGES.length * 3)) * 100)}%` }} /></div>
           </div>
           <button className="quiet-button badge-dashboard-button" type="button" onClick={showBadgeCollection}>My badges</button>
           <button className="quiet-button" type="button" onClick={downloadProgress}>Save report</button>
@@ -315,16 +405,20 @@ export default function Home() {
       {reportMessage && <div className="report-message" role="status">{reportMessage}</div>}
 
       {selectedBadge && currentLevel ? (
-          <BadgeView
+          <ChallengePlayer
             key={`${selectedBadge.id}-${selectedLevel}`}
             badge={selectedBadge}
           level={currentLevel}
           levelIndex={selectedLevel}
           progress={progress}
+          certifications={certifications}
+          testProgress={testProgress}
             onBack={returnHome}
             onShowBadges={showBadgeCollection}
             onSelectLevel={selectLevel}
             onToggleTask={toggleTask}
+            onToggleTest={toggleTest}
+            onSetCertification={setChallengeCertification}
             onOpenBadge={openBadge}
             onDownload={downloadProgress}
             onUpload={uploadProgress}
@@ -332,6 +426,7 @@ export default function Home() {
       ) : (
         <Dashboard
           progress={progress}
+          certifications={certifications}
           completeTasks={completeTasks}
           completeBadges={completeBadges}
           resumeBadge={resumeTarget.badge}
@@ -348,8 +443,9 @@ export default function Home() {
   );
 }
 
-function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resumeLevel, badgeCollectionOpen, onToggleBadgeCollection, onOpenBadge, onDownload, onUpload, onReset }: {
+function Dashboard({ progress, certifications, completeTasks, completeBadges, resumeBadge, resumeLevel, badgeCollectionOpen, onToggleBadgeCollection, onOpenBadge, onDownload, onUpload, onReset }: {
   progress: Progress;
+  certifications: Progress;
   completeTasks: number;
   completeBadges: number;
   resumeBadge: Badge;
@@ -384,7 +480,7 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
         </aside>
       </section>
 
-      <BadgeCollection progress={progress} completeBadges={completeBadges} open={badgeCollectionOpen} onToggle={onToggleBadgeCollection} onOpenBadge={onOpenBadge} />
+      <BadgeCollection progress={progress} certifications={certifications} completeBadges={completeBadges} open={badgeCollectionOpen} onToggle={onToggleBadgeCollection} onOpenBadge={onOpenBadge} />
 
       <section className="roadmap" aria-labelledby="roadmap-title">
         <div className="section-heading">
@@ -395,9 +491,10 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
           {BADGES.map((badge) => {
             const total = taskKeys(badge).length;
             const done = countComplete(progress, taskKeys(badge));
-            const isComplete = done === total;
+            const challengesDone = certifiedChallenges(certifications, badge);
+            const isComplete = challengesDone === 3;
             const isRecommended = badge.id === resumeBadge.id;
-            const openLevel = isRecommended ? resumeLevel : firstIncompleteLevelIndex(progress, badge);
+            const openLevel = isRecommended ? resumeLevel : firstIncompleteLevelIndex(certifications, badge);
             const status = badge.optional && done === 0 ? "Optional · Advanced" : isComplete ? "Gold earned" : done > 0 ? "In progress" : isRecommended ? "Recommended next" : "Available";
             return (
               <article role="button" tabIndex={0} className={`badge-card ${badge.optional ? "optional" : ""} ${done > 0 ? "active" : ""} ${isComplete ? "complete" : ""} ${isRecommended ? "recommended" : ""}`} onClick={() => onOpenBadge(badge.id, openLevel)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpenBadge(badge.id, openLevel); } }} key={badge.id} aria-label={`${done > 0 ? "Continue" : "Open"} ${badge.title}`}>
@@ -408,7 +505,8 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
                 <div className="levels">
                   {badge.levels.map((level) => {
                     const levelDone = countComplete(progress, taskKeys(badge, level));
-                    return <span className={levelDone === 3 ? "earned" : ""} key={level.id}>{level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold"} · {challengeStatus(levelDone)}</span>;
+                    const certified = !!certifications[certificationKey(badge, level)];
+                    return <span className={certified ? "earned" : ""} key={level.id}>{level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold"} · {challengeStatus(levelDone, certified)}</span>;
                   })}
                 </div>
                 <span className="card-button">{done > 0 ? "Continue badge" : isRecommended ? "Start here" : "Open badge"} <span>→</span></span>
@@ -426,14 +524,15 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resum
   );
 }
 
-function BadgeCollection({ progress, completeBadges, open, onToggle, onOpenBadge }: {
+function BadgeCollection({ progress, certifications, completeBadges, open, onToggle, onOpenBadge }: {
   progress: Progress;
+  certifications: Progress;
   completeBadges: number;
   open: boolean;
   onToggle: () => void;
   onOpenBadge: (id: string, level?: number) => void;
 }) {
-  const completedChallenges = BADGES.reduce((total, badge) => total + certifiedChallenges(progress, badge), 0);
+  const completedChallenges = BADGES.reduce((total, badge) => total + certifiedChallenges(certifications, badge), 0);
 
   return (
     <section className={`achievement-dashboard ${open ? "expanded" : "collapsed"}`} id="badge-collection" aria-labelledby="badge-collection-title">
@@ -450,11 +549,10 @@ function BadgeCollection({ progress, completeBadges, open, onToggle, onOpenBadge
         <div className="tier-key" aria-label="Badge colour key"><span className="key-locked">Not started</span><span className="key-working">Working on it</span><span className="key-bronze">Bronze</span><span className="key-silver">Silver</span><span className="key-gold">Gold</span></div>
         <div className="medal-grid">
           {BADGES.map((badge) => {
-            const total = taskKeys(badge).length;
             const done = countComplete(progress, taskKeys(badge));
-            const tier = awardTier(done, total);
-            const nextLevel = firstIncompleteLevelIndex(progress, badge);
-            const challengesDone = certifiedChallenges(progress, badge);
+            const challengesDone = certifiedChallenges(certifications, badge);
+            const tier = awardTier(challengesDone, done > 0);
+            const nextLevel = firstIncompleteLevelIndex(certifications, badge);
             return (
               <button className={`medal-card ${tier} ${badge.optional ? "advanced" : ""}`} type="button" onClick={() => onOpenBadge(badge.id, nextLevel)} key={badge.id} aria-label={`${badge.credential}. ${awardLabel(tier)}. ${challengesDone} of 3 challenges self-certified.`}>
                 <AchievementMedal badge={badge} tier={tier} />
@@ -469,6 +567,206 @@ function BadgeCollection({ progress, completeBadges, open, onToggle, onOpenBadge
   );
 }
 
+function ChallengePlayer({ badge, level, levelIndex, progress, certifications, testProgress, onBack, onShowBadges, onSelectLevel, onToggleTask, onToggleTest, onSetCertification, onOpenBadge, onDownload, onUpload }: {
+  badge: Badge;
+  level: ChallengeLevel;
+  levelIndex: number;
+  progress: Progress;
+  certifications: Progress;
+  testProgress: Progress;
+  onBack: () => void;
+  onShowBadges: () => void;
+  onSelectLevel: (index: number) => void;
+  onToggleTask: (key: string) => void;
+  onToggleTest: (key: string) => void;
+  onSetCertification: (key: string, value: boolean) => void;
+  onOpenBadge: (id: string, level?: number) => void;
+  onDownload: () => void;
+  onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
+}) {
+  const levelTaskKeys = taskKeys(badge, level);
+  const levelTestKeys = testKeys(badge, level);
+  const levelDone = countComplete(progress, levelTaskKeys);
+  const testsDone = countComplete(testProgress, levelTestKeys);
+  const claimKey = certificationKey(badge, level);
+  const levelCertified = !!certifications[claimKey];
+  const maxUnlockedStage = levelCertified ? 4 : levelDone < level.tasks.length ? 2 : testsDone < level.tests.length ? 3 : 4;
+  const [activeStage, setActiveStage] = useState(() => {
+    const defaultStage = levelCertified ? 4 : levelDone > 0 ? 2 : 0;
+    if (typeof window === "undefined") return defaultStage;
+    const saved = Number.parseInt(localStorage.getItem(`python-bridge-stage-v1:${badge.id}:${level.id}`) || "", 10);
+    return Number.isInteger(saved) && saved >= 0 ? Math.min(saved, maxUnlockedStage) : defaultStage;
+  });
+  const [activeTaskIndex, setActiveTaskIndex] = useState(() => {
+    const first = levelTaskKeys.findIndex((key) => !progress[key]);
+    return first === -1 ? Math.max(0, level.tasks.length - 1) : first;
+  });
+  const [supportOpen, setSupportOpen] = useState(false);
+  const [claimOpen, setClaimOpen] = useState(false);
+  const keywords = KEYWORDS[badge.id] || [];
+  const independentBadge = ["algorithms", "problem-solver", "advanced-as"].includes(badge.id);
+  const tierName = level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold";
+  const nextBadge = BADGES[BADGES.findIndex((item) => item.id === badge.id) + 1];
+  const stageStorageKey = `python-bridge-stage-v1:${badge.id}:${level.id}`;
+
+  useEffect(() => {
+    localStorage.setItem(stageStorageKey, String(activeStage));
+  }, [activeStage, stageStorageKey]);
+
+  function moveToStage(index: number) {
+    if (index <= maxUnlockedStage) {
+      setActiveStage(index);
+      window.setTimeout(() => document.getElementById("player-stage-panel")?.focus(), 0);
+    }
+  }
+
+  function toggleBuildStep(index: number) {
+    const key = levelTaskKeys[index];
+    const wasDone = !!progress[key];
+    onToggleTask(key);
+    if (levelCertified) onSetCertification(claimKey, false);
+    if (wasDone && activeStage > 2) setActiveStage(2);
+    if (!wasDone && index < level.tasks.length - 1) setActiveTaskIndex(index + 1);
+    else if (wasDone) setActiveTaskIndex(index);
+  }
+
+  function toggleChallengeTest(index: number) {
+    const wasPassed = !!testProgress[levelTestKeys[index]];
+    onToggleTest(levelTestKeys[index]);
+    if (levelCertified) onSetCertification(claimKey, false);
+    if (wasPassed && activeStage > 3) setActiveStage(3);
+  }
+
+  function confirmClaim() {
+    onSetCertification(claimKey, true);
+    setClaimOpen(false);
+  }
+
+  function levelState(item: ChallengeLevel) {
+    const done = countComplete(progress, taskKeys(badge, item));
+    return challengeStatus(done, !!certifications[certificationKey(badge, item)]);
+  }
+
+  return (
+    <div className="badge-view player-view">
+      <nav className="mobile-course-nav" aria-label="Course and challenge navigation">
+        <button type="button" onClick={onBack}>← Pathway</button>
+        <label><span>Badge</span><select value={badge.id} onChange={(event) => { const selected = BADGES.find((item) => item.id === event.target.value); if (selected) onOpenBadge(selected.id, firstIncompleteLevelIndex(certifications, selected)); }}>{BADGES.map((item) => <option value={item.id} key={item.id}>{item.number} · {item.title}</option>)}</select></label>
+        <label><span>Challenge</span><select value={levelIndex} onChange={(event) => onSelectLevel(Number(event.target.value))}>{badge.levels.map((item, index) => <option value={index} key={item.id}>{item.label}</option>)}</select></label>
+        <button type="button" onClick={onDownload}>Save report</button>
+        <label className="mobile-upload">Upload report<input type="file" accept=".json,application/json" onChange={onUpload} /></label>
+      </nav>
+
+      <aside className="course-nav">
+        <button className="back-link" type="button" onClick={onBack}>← Course pathway</button>
+        <p className="nav-label">Badges</p>
+        {BADGES.map((item) => <button type="button" className={item.id === badge.id ? "selected" : ""} onClick={() => onOpenBadge(item.id, firstIncompleteLevelIndex(certifications, item))} key={item.id}><span>{item.number}</span><div>{item.title}<small>{certifiedChallenges(certifications, item)} / 3 challenges{item.optional ? " · optional" : ""}</small></div></button>)}
+      </aside>
+
+      <div className="badge-main">
+        <section className="badge-banner compact-banner">
+          <div><p className="eyebrow">Badge {badge.number} · {badge.credential}</p><h1>{badge.title}</h1><p>{badge.short}</p></div>
+          <div className="badge-facts"><span><b>Current challenge</b>{level.label}</span><span><b>Badge progress</b>{certifiedChallenges(certifications, badge)} / 3 challenges claimed</span>{badge.optional && <span><b>Pathway</b>Optional advanced work</span>}</div>
+        </section>
+
+        <section className="challenge-switcher" aria-labelledby="challenge-switcher-title">
+          <div><p className="eyebrow dark">Choose one challenge</p><h2 id="challenge-switcher-title">Bronze, Silver or Gold</h2></div>
+          <div className="level-tabs player-level-tabs" role="tablist" aria-label="Challenge level">
+            {badge.levels.map((item, index) => <button type="button" role="tab" aria-selected={index === levelIndex} className={index === levelIndex ? "selected" : ""} onClick={() => onSelectLevel(index)} key={item.id}><span>{item.id}</span><strong>{item.label.split(" · ")[1]}</strong><small>{levelState(item)}</small></button>)}
+          </div>
+          <p className="challenge-explainer"><strong>One challenge = one program.</strong> Work through five short stages, then claim it yourself when your evidence is ready.</p>
+        </section>
+
+        <section className={`challenge-player ${supportOpen ? "support-visible" : ""}`} id="current-challenge">
+          <header className="player-header">
+            <div><p className={`stage-chip ${level.id}`}>{tierName} challenge</p><h2>{level.scenario}</h2><p>{level.outcome}</p></div>
+            <button className={`support-toggle ${supportOpen ? "open" : ""}`} type="button" aria-expanded={supportOpen} aria-controls="player-support" onClick={() => setSupportOpen((current) => !current)}><span aria-hidden="true">?</span>{supportOpen ? "Hide reference & help" : "Reference & help"}</button>
+          </header>
+
+          <div className="stage-stepper-wrap" aria-label="Challenge stages">
+            <ol className="stage-stepper">
+              {PLAYER_STAGES.map((stage, index) => {
+                const locked = index > maxUnlockedStage;
+                const complete = levelCertified || index < activeStage || (index === 2 && levelDone === level.tasks.length) || (index === 3 && testsDone === level.tests.length);
+                return <li key={stage}><button type="button" disabled={locked} aria-current={index === activeStage ? "step" : undefined} className={`${index === activeStage ? "current" : ""} ${complete ? "complete" : ""}`} onClick={() => moveToStage(index)}><span>{complete ? "✓" : index + 1}</span><strong>{stage}</strong><small>{locked ? (index === 3 ? "Finish Build first" : "Pass every test first") : index === activeStage ? "You are here" : complete ? "Complete" : "Available"}</small></button></li>;
+              })}
+            </ol>
+          </div>
+
+          <div className="player-workspace">
+            <article className="player-main" id="player-stage-panel" tabIndex={-1}>
+              {activeStage === 0 && <section className="stage-panel">
+                <div className="stage-heading"><span>1</span><div><p className="eyebrow dark">Understand</p><h3>Know exactly what you are making</h3><p>Do not code yet. Read the outcome, inputs and evidence first.</p></div></div>
+                <div className="mission-summary"><strong>Your mission</strong><p>{level.scenario}: {level.outcome}</p><span>{level.support}</span></div>
+                {independentBadge && <div className="plain-brief"><h4>Plain-English requirements</h4><ul>{(level.plainEnglish || [level.outcome]).map((item) => <li key={item}>{item}</li>)}</ul></div>}
+                {(level.setup || level.deliverables) && <div className="setup-summary">{level.setup && <section><h4>Set up first</h4><ol>{level.setup.map((item) => <li key={item}>{item}</li>)}</ol></section>}{level.deliverables && <section><h4>Keep as evidence</h4><ul>{level.deliverables.map((item) => <li key={item}>{item}</li>)}</ul></section>}</div>}
+                {(badge.id === "files" || badge.id === "problem-solver" || badge.id === "advanced-as") && <div className="download-callout compact-download"><div><strong>Files needed for this challenge</strong><p>Download once and keep the supplied text files beside your Python program.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download files</a></div>}
+                <div className="stage-actions"><span>When you can explain the finished program in one sentence, continue.</span><button className="primary-small" type="button" onClick={() => moveToStage(1)}>Continue to Plan →</button></div>
+              </section>}
+
+              {activeStage === 1 && <section className="stage-panel">
+                <div className="stage-heading"><span>2</span><div><p className="eyebrow dark">Plan</p><h3>Translate the logic before the syntax</h3><p>Use the pseudocode you know to identify the sequence of the solution.</p></div></div>
+                {badge.id === "input" && level.id === "bronze" && <section className="input-pattern-card"><h4>Three Python input patterns</h4><p>Python input begins as text. Convert it only when the program needs a number.</p><div><code>name = input(&quot;Name: &quot;)</code><code>age = int(input(&quot;Age: &quot;))</code><code>price = float(input(&quot;Price: &quot;))</code></div></section>}
+                {independentBadge ? <details className="pseudocode-box staged-reveal"><summary>Reveal the pseudocode after making your own plan</summary><div className="reveal-warning">First identify the inputs, processing and outputs. Then compare your structure with this example.</div><CodeBlock label="Cambridge pseudocode example" value={level.pseudocode} copyLabel="Copy pseudocode" /></details> : <CodeBlock label="Pseudocode / design supplied" value={level.pseudocode} copyLabel="Copy pseudocode" />}
+                <div className="plan-check"><strong>Before you build, point to:</strong><span>the input or starting data</span><span>the processing</span><span>the output or final result</span></div>
+                <div className="stage-actions"><button type="button" onClick={() => moveToStage(0)}>← Back</button><button className="primary-small" type="button" onClick={() => moveToStage(2)}>Continue to Build →</button></div>
+              </section>}
+
+              {activeStage === 2 && <section className="stage-panel">
+                <div className="stage-heading"><span>3</span><div><p className="eyebrow dark">Build</p><h3>Complete one step at a time</h3><p>This is one program with three build steps—not three separate activities.</p></div></div>
+                <div className="build-progress"><ProgressBar value={levelDone} max={level.tasks.length} label="Build steps complete" /></div>
+                <div className="build-step-nav" aria-label="Build steps">{level.tasks.map((task, index) => <button type="button" className={`${index === activeTaskIndex ? "current" : ""} ${progress[levelTaskKeys[index]] ? "done" : ""}`} onClick={() => setActiveTaskIndex(index)} key={task.title}><span>{progress[levelTaskKeys[index]] ? "✓" : index + 1}</span><small>Step {index + 1}</small></button>)}</div>
+                <article className={`focused-task ${progress[levelTaskKeys[activeTaskIndex]] ? "done" : ""}`}>
+                  <p>Step {activeTaskIndex + 1} of {level.tasks.length}</p><h4>{level.tasks[activeTaskIndex].title.replace(/^\d+\.\s*/, "")}</h4><p>{level.tasks[activeTaskIndex].instruction}</p>
+                  <button type="button" onClick={() => toggleBuildStep(activeTaskIndex)}>{progress[levelTaskKeys[activeTaskIndex]] ? "✓ Step complete — undo" : "Mark this build step complete"}</button>
+                </article>
+                <details className="starter-box staged-reveal"><summary>{independentBadge ? "Need a nudge? Reveal the incomplete Python structure" : "Need a scaffold? Reveal the incomplete Python starting point"}</summary><div className="starter-warning">Try the current step first. This is an incomplete starting point, not the model answer.</div><CodeBlock label="Incomplete Python starting point" value={level.pythonStarter} /></details>
+                <div className="stage-actions"><button type="button" onClick={() => moveToStage(1)}>← Back to Plan</button>{levelDone === level.tasks.length ? <button className="primary-small" type="button" onClick={() => moveToStage(3)}>Build complete · start Test →</button> : <span>Complete all three build steps to unlock Test.</span>}</div>
+              </section>}
+
+              {activeStage === 3 && <section className="stage-panel">
+                <div className="stage-heading"><span>4</span><div><p className="eyebrow dark">Test</p><h3>Prove that your program works</h3><p>Run your own program for each check. Tick a test only after you have seen the correct result.</p></div></div>
+                <ProgressBar value={testsDone} max={level.tests.length} label="Tests passed" />
+                <div className="interactive-tests">{level.tests.map((test, index) => <label className={testProgress[levelTestKeys[index]] ? "passed" : ""} key={test}><input type="checkbox" checked={!!testProgress[levelTestKeys[index]]} onChange={() => toggleChallengeTest(index)} /><span aria-hidden="true">{testProgress[levelTestKeys[index]] ? "✓" : index + 1}</span><strong>{test}</strong></label>)}</div>
+                {level.expectedOutput && <details className="expected-output-box"><summary>Compare with the known-good output</summary><div className="reveal-warning">Run your own program first. Small spacing differences are acceptable unless an exact format is required.</div><CodeBlock label="Known-good output" value={level.expectedOutput} copyLabel="Copy expected output" /></details>}
+                {level.troubleshooting && <details className="troubleshooting-compact"><summary>My program is not passing a test</summary><div>{level.troubleshooting.map((item) => <article key={item.problem}><strong>{item.problem}</strong><p>{item.check}</p></article>)}</div></details>}
+                <div className="stage-actions"><button type="button" onClick={() => moveToStage(2)}>← Back to Build</button>{testsDone === level.tests.length ? <button className="primary-small" type="button" onClick={() => moveToStage(4)}>All tests passed · Claim →</button> : <span>Pass and tick every test to unlock Claim.</span>}</div>
+              </section>}
+
+              {activeStage === 4 && <section className="stage-panel claim-stage">
+                <div className="stage-heading"><span>5</span><div><p className="eyebrow dark">Claim</p><h3>{levelCertified ? `${tierName} challenge claimed` : `Claim your ${tierName} challenge`}</h3><p>The site cannot inspect your Python. You make an honest claim using the evidence in your saved file.</p></div></div>
+                {levelCertified ? <div className={`credential-earned ${level.id}`} role="status"><AchievementMedal badge={badge} tier={level.id} compact /><div><strong>{tierName} challenge self-certified</strong><p>Your program runs, passes all stated tests and is saved as evidence.</p></div><button type="button" onClick={onShowBadges}>View my badges</button></div> : <div className="claim-readiness"><h4>Your evidence is ready</h4><ul><li><span>✓</span>All three build steps are complete.</li><li><span>✓</span>Every listed test is passed.</li><li><span>✓</span>Your Python file is saved.</li></ul><button className="claim-button" type="button" onClick={() => setClaimOpen(true)}>Claim {tierName} challenge</button></div>}
+                {levelCertified && <details className="model-box"><summary>Compare with the model Python answer</summary><div className="model-warning">A different working solution can still be correct. Compare the logic, not just the exact lines.</div><CodeBlock label="Model Python" value={level.model} /><h4>Why this works</h4><ul>{level.modelNotes.map((note) => <li key={note}>{note}</li>)}</ul></details>}
+                <div className="stage-actions final-actions">{levelIndex > 0 && <button type="button" onClick={() => onSelectLevel(levelIndex - 1)}>← Previous challenge</button>}{levelCertified && levelIndex < badge.levels.length - 1 && <button className="primary-small" type="button" onClick={() => onSelectLevel(levelIndex + 1)}>Next challenge: {badge.levels[levelIndex + 1].id === "silver" ? "Silver" : "Gold"} →</button>}{levelCertified && levelIndex === badge.levels.length - 1 && nextBadge && <button className="primary-small" type="button" onClick={() => onOpenBadge(nextBadge.id, firstIncompleteLevelIndex(certifications, nextBadge))}>Next badge: {nextBadge.title} →</button>}</div>
+              </section>}
+            </article>
+
+            {supportOpen && <aside className="player-support" id="player-support">
+              <div className="support-title"><span aria-hidden="true">?</span><div><strong>Reference & help</strong><small>Open only what you need.</small></div></div>
+              <details open><summary>Keywords</summary><dl>{keywords.map((item) => <div key={item.term}><dt>{item.term}</dt><dd>{item.definition}</dd></div>)}</dl></details>
+              <details><summary>Learning goals</summary><ul>{badge.learning.map((item) => <li key={item}>{item}</li>)}</ul></details>
+              <details><summary>Rules to remember</summary><ol>{badge.rules.map((item) => <li key={item}>{item}</li>)}</ol></details>
+              {!independentBadge && <details><summary>Pseudocode → Python example</summary><CodeBlock label="Cambridge pseudocode" value={badge.pseudoExample} /><CodeBlock label="Python equivalent" value={badge.pythonExample} /></details>}
+              <ProgressiveHints hints={level.hints} />
+              {badge.id === "starter" && <details><summary>How to run a Python file</summary><ol><li>Open the Python editor used in class.</li><li>Create a new file and save it.</li><li>Type or adapt the starting point.</li><li>Press Run and read the output.</li><li>For an error, read the final line and check the named line number.</li></ol></details>}
+            </aside>}
+          </div>
+        </section>
+      </div>
+
+      {claimOpen && <div className="certification-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setClaimOpen(false); }}>
+        <section className="certification-dialog" role="dialog" aria-modal="true" aria-labelledby="certification-title" onKeyDown={(event) => { if (event.key === "Escape") setClaimOpen(false); }}>
+          <p className="eyebrow dark">Final self-check</p><h2 id="certification-title">Claim your {tierName} challenge?</h2><p>This site cannot inspect or mark your Python code. Confirm only when every statement is true.</p>
+          <ul><li>My own program runs without an unresolved error.</li><li>I ran it and passed every test listed in the Test stage.</li><li>I saved the Python file as evidence.</li></ul>
+          <p className="certification-consequence">After confirmation, this challenge appears in <strong>My badges</strong>. If you later undo a build step or test, the claim is removed until you check it again.</p>
+          <div><button type="button" onClick={() => setClaimOpen(false)} autoFocus>Not yet — return to my code</button><button className="confirm-claim" type="button" onClick={confirmClaim}>Confirm and claim {tierName}</button></div>
+        </section>
+      </div>}
+    </div>
+  );
+}
+
+// eslint-disable-next-line @typescript-eslint/no-unused-vars
 function BadgeView({ badge, level, levelIndex, progress, onBack, onShowBadges, onSelectLevel, onToggleTask, onOpenBadge, onDownload, onUpload }: {
   badge: Badge;
   level: ChallengeLevel;
