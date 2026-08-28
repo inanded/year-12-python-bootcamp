@@ -6,6 +6,7 @@ import { KEYWORDS } from "./keyword-data";
 
 const STORAGE_KEY = "python-bridge-progress-v1";
 const LAST_BADGE_KEY = "python-bridge-last-badge-v1";
+const LAST_LEVEL_KEY = "python-bridge-last-level-v1";
 const PUBLIC_BASE_PATH = process.env.NEXT_PUBLIC_BASE_PATH || "";
 
 type Progress = Record<string, boolean>;
@@ -23,6 +24,11 @@ function countComplete(progress: Progress, keys: string[]) {
   return keys.filter((key) => progress[key]).length;
 }
 
+function firstIncompleteLevelIndex(progress: Progress, badge: Badge) {
+  const index = badge.levels.findIndex((level) => countComplete(progress, taskKeys(badge, level)) < level.tasks.length);
+  return index === -1 ? Math.max(0, badge.levels.length - 1) : index;
+}
+
 const CORE_BADGES = BADGES.filter((badge) => !badge.optional);
 const CORE_TASK_KEYS = CORE_BADGES.flatMap((badge) => taskKeys(badge));
 
@@ -32,13 +38,29 @@ function CodeBlock({ label, value, copyLabel = "Copy code" }: { label: string; v
   async function copy() {
     await navigator.clipboard.writeText(value);
     setCopied(true);
-    window.setTimeout(() => setCopied(false), 1200);
+    window.setTimeout(() => setCopied(false), 2500);
   }
 
   return (
     <section className="code-panel">
-      <div className="code-head"><span>{label}</span><button type="button" onClick={copy}>{copied ? "Copied" : copyLabel}</button></div>
+      <div className="code-head"><span>{label}</span><button type="button" onClick={copy} aria-live="polite">{copied ? "Copied" : copyLabel}</button></div>
       <pre><code>{value}</code></pre>
+    </section>
+  );
+}
+
+function ProgressiveHints({ hints }: { hints: string[] }) {
+  const [visibleHints, setVisibleHints] = useState(0);
+  const nextHint = visibleHints + 1;
+
+  return (
+    <section className="hint-box" aria-labelledby="hint-title">
+      <div className="support-heading">
+        <div><p className="eyebrow dark">Use only when needed</p><h3 id="hint-title">Progressive hints</h3></div>
+        {visibleHints < hints.length && <button type="button" onClick={() => setVisibleHints(nextHint)}>Reveal hint {nextHint}</button>}
+      </div>
+      {visibleHints === 0 ? <p className="hint-prompt">Try the task and its tests first. Reveal one hint only when you reach a specific block.</p> : <ol aria-live="polite">{hints.slice(0, visibleHints).map((hint) => <li key={hint}>{hint}</li>)}</ol>}
+      {visibleHints === hints.length && <p className="all-hints-shown">All hints are now visible. Return to your code before opening the model answer.</p>}
     </section>
   );
 }
@@ -58,6 +80,7 @@ export default function Home() {
   const [selectedBadgeId, setSelectedBadgeId] = useState<string | null>(null);
   const [selectedLevel, setSelectedLevel] = useState(0);
   const [lastBadgeId, setLastBadgeId] = useState<string | null>(null);
+  const [lastLevelIndex, setLastLevelIndex] = useState<number | null>(null);
   const [ready, setReady] = useState(false);
   const [reportMessage, setReportMessage] = useState("");
 
@@ -70,6 +93,8 @@ export default function Home() {
         setProgress({});
       }
       setLastBadgeId(localStorage.getItem(LAST_BADGE_KEY));
+      const savedLevel = Number.parseInt(localStorage.getItem(LAST_LEVEL_KEY) || "", 10);
+      setLastLevelIndex(Number.isInteger(savedLevel) ? savedLevel : null);
       setReady(true);
     }, 0);
     return () => window.clearTimeout(timer);
@@ -84,20 +109,41 @@ export default function Home() {
   const selectedBadge = BADGES.find((badge) => badge.id === selectedBadgeId) || null;
   const currentLevel = selectedBadge?.levels[selectedLevel];
 
-  const resumeBadge = useMemo(() => {
-    const found = BADGES.find((badge) => badge.id === lastBadgeId);
-    if (found) return found;
-    return CORE_BADGES.find((badge) => countComplete(progress, taskKeys(badge)) < taskKeys(badge).length)
-      || BADGES.find((badge) => badge.optional && countComplete(progress, taskKeys(badge)) < taskKeys(badge).length)
+  const resumeTarget = useMemo(() => {
+    const lastBadge = BADGES.find((badge) => badge.id === lastBadgeId);
+    if (lastBadge) {
+      const done = countComplete(progress, taskKeys(lastBadge));
+      const validStoredLevel = lastLevelIndex !== null && !!lastBadge.levels[lastLevelIndex];
+      if (done > 0 && done < taskKeys(lastBadge).length) {
+        return { badge: lastBadge, levelIndex: validStoredLevel ? lastLevelIndex : firstIncompleteLevelIndex(progress, lastBadge) };
+      }
+    }
+
+    const partialBadge = BADGES.find((badge) => {
+      const done = countComplete(progress, taskKeys(badge));
+      return done > 0 && done < taskKeys(badge).length;
+    });
+    const badge = partialBadge
+      || CORE_BADGES.find((item) => countComplete(progress, taskKeys(item)) < taskKeys(item).length)
+      || BADGES.find((item) => item.optional && countComplete(progress, taskKeys(item)) < taskKeys(item).length)
       || BADGES[0];
-  }, [progress, lastBadgeId]);
+    return { badge, levelIndex: firstIncompleteLevelIndex(progress, badge) };
+  }, [progress, lastBadgeId, lastLevelIndex]);
 
   function openBadge(id: string, level = 0) {
     setSelectedBadgeId(id);
     setSelectedLevel(level);
     localStorage.setItem(LAST_BADGE_KEY, id);
+    localStorage.setItem(LAST_LEVEL_KEY, String(level));
     setLastBadgeId(id);
+    setLastLevelIndex(level);
     window.scrollTo({ top: 0, behavior: "smooth" });
+  }
+
+  function selectLevel(level: number) {
+    setSelectedLevel(level);
+    localStorage.setItem(LAST_LEVEL_KEY, String(level));
+    setLastLevelIndex(level);
   }
 
   function returnHome() {
@@ -112,10 +158,11 @@ export default function Home() {
   function downloadProgress() {
     const report = {
       format: "python-bridge-progress",
-      version: 2,
+      version: 3,
       course: "Python Bootcamp · Year 12",
       savedAt: new Date().toISOString(),
       lastBadgeId,
+      lastLevelIndex,
       progress,
       summary: {
         coreTasks: `${completeTasks} / ${TOTAL_TASKS}`,
@@ -160,9 +207,18 @@ export default function Home() {
       setProgress(restored);
 
       const restoredLastBadge = BADGES.find((badge) => badge.id === report.lastBadgeId)?.id || null;
+      const restoredBadge = BADGES.find((badge) => badge.id === restoredLastBadge);
+      const requestedLevel = Number.isInteger(report.lastLevelIndex) ? report.lastLevelIndex : 0;
+      const restoredLevel = restoredBadge?.levels[requestedLevel] ? requestedLevel : 0;
       setLastBadgeId(restoredLastBadge);
-      if (restoredLastBadge) localStorage.setItem(LAST_BADGE_KEY, restoredLastBadge);
-      else localStorage.removeItem(LAST_BADGE_KEY);
+      setLastLevelIndex(restoredLastBadge ? restoredLevel : null);
+      if (restoredLastBadge) {
+        localStorage.setItem(LAST_BADGE_KEY, restoredLastBadge);
+        localStorage.setItem(LAST_LEVEL_KEY, String(restoredLevel));
+      } else {
+        localStorage.removeItem(LAST_BADGE_KEY);
+        localStorage.removeItem(LAST_LEVEL_KEY);
+      }
       setReportMessage("Progress restored. You can continue from your saved work.");
     } catch {
       setReportMessage("That file is not a valid Python Bridge progress report. Choose the report downloaded from this site.");
@@ -173,7 +229,9 @@ export default function Home() {
     if (window.confirm("Clear every completed task on this device? Your Python files will not be affected.")) {
       setProgress({});
       localStorage.removeItem(LAST_BADGE_KEY);
+      localStorage.removeItem(LAST_LEVEL_KEY);
       setLastBadgeId(null);
+      setLastLevelIndex(null);
       setReportMessage("Progress cleared on this device.");
     }
   }
@@ -185,6 +243,7 @@ export default function Home() {
           <span className="brand-mark">PB</span>
           <span><strong>Python Bootcamp</strong><small>Year 12 · Pseudocode to Python</small></span>
         </button>
+        {selectedBadge && currentLevel && <div className="header-context" aria-label={`Current position: Badge ${selectedBadge.number}, ${selectedBadge.title}, ${currentLevel.label}`}><span>Badge {selectedBadge.number}</span><strong>{selectedBadge.title}</strong><small>{currentLevel.label}</small></div>}
         <div className="header-actions">
           <div className="header-progress">
             <span>{completeBadges} of {CORE_BADGES.length} core badges</span>
@@ -197,22 +256,26 @@ export default function Home() {
       {reportMessage && <div className="report-message" role="status">{reportMessage}</div>}
 
       {selectedBadge && currentLevel ? (
-        <BadgeView
-          badge={selectedBadge}
+          <BadgeView
+            key={`${selectedBadge.id}-${selectedLevel}`}
+            badge={selectedBadge}
           level={currentLevel}
           levelIndex={selectedLevel}
           progress={progress}
           onBack={returnHome}
-          onSelectLevel={setSelectedLevel}
-          onToggleTask={toggleTask}
-          onOpenBadge={openBadge}
+            onSelectLevel={selectLevel}
+            onToggleTask={toggleTask}
+            onOpenBadge={openBadge}
+            onDownload={downloadProgress}
+            onUpload={uploadProgress}
         />
       ) : (
         <Dashboard
           progress={progress}
           completeTasks={completeTasks}
           completeBadges={completeBadges}
-          resumeBadge={resumeBadge}
+          resumeBadge={resumeTarget.badge}
+          resumeLevel={resumeTarget.levelIndex}
           onOpenBadge={openBadge}
           onDownload={downloadProgress}
           onUpload={uploadProgress}
@@ -223,11 +286,12 @@ export default function Home() {
   );
 }
 
-function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, onOpenBadge, onDownload, onUpload, onReset }: {
+function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, resumeLevel, onOpenBadge, onDownload, onUpload, onReset }: {
   progress: Progress;
   completeTasks: number;
   completeBadges: number;
   resumeBadge: Badge;
+  resumeLevel: number;
   onOpenBadge: (id: string, level?: number) => void;
   onDownload: () => void;
   onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
@@ -240,8 +304,8 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, onOpe
           <p className="eyebrow">Cambridge 9618 · Pseudocode to Python</p>
           <h1>Python Bootcamp</h1>
           <p className="hero-intro">No Python knowledge is assumed. Start with familiar pseudocode, translate one idea at a time, run it, test it and keep your progress on this device.</p>
-          <button className="primary-button" type="button" onClick={() => onOpenBadge(resumeBadge.id)}>
-            {completeTasks === 0 ? "Start with Python Starter" : `Continue: ${resumeBadge.title}`} <span>→</span>
+          <button className="primary-button" type="button" onClick={() => onOpenBadge(resumeBadge.id, resumeLevel)}>
+            {completeTasks === 0 ? "Start with Python Starter" : `Continue: ${resumeBadge.title} · ${resumeBadge.levels[resumeLevel].label.split(" · ")[1]}`} <span>→</span>
           </button>
         </div>
         <aside className="promise-card">
@@ -259,16 +323,19 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, onOpe
       <section className="roadmap" aria-labelledby="roadmap-title">
         <div className="section-heading">
           <div><p className="eyebrow dark">Your pathway</p><h2 id="roadmap-title">Ten core badges, plus one optional advanced pathway.</h2></div>
-          <div className="dashboard-progress"><ProgressBar value={completeTasks} max={TOTAL_TASKS} label="Core tasks complete" /><p>{completeBadges} complete core badges. Badge 11 is only for students who feel secure with all the core content.</p></div>
+          <div className="dashboard-progress"><ProgressBar value={completeBadges} max={CORE_BADGES.length} label="Core badges complete" /><p>{completeTasks} of {TOTAL_TASKS} checked tasks are saved. Focus on the nine tasks in your current badge. Badge 11 is optional advanced work.</p></div>
         </div>
         <div className="badge-grid">
           {BADGES.map((badge) => {
             const total = taskKeys(badge).length;
             const done = countComplete(progress, taskKeys(badge));
             const isComplete = done === total;
+            const isRecommended = badge.id === resumeBadge.id;
+            const openLevel = isRecommended ? resumeLevel : firstIncompleteLevelIndex(progress, badge);
+            const status = badge.optional && done === 0 ? "Optional · Advanced" : isComplete ? "Gold earned" : done > 0 ? "In progress" : isRecommended ? "Recommended next" : "Available";
             return (
-              <article role="button" tabIndex={0} className={`badge-card ${badge.optional ? "optional" : ""} ${done > 0 ? "active" : ""} ${isComplete ? "complete" : ""}`} onClick={() => onOpenBadge(badge.id)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpenBadge(badge.id); } }} key={badge.id} aria-label={`${done > 0 ? "Continue" : "Open"} ${badge.title}`}>
-                <div className="badge-card-top"><div className="badge-number">{badge.number}</div><span className="status">{badge.optional && done === 0 ? "Optional · Advanced" : isComplete ? "Gold earned" : done > 0 ? "In progress" : "Ready"}</span></div>
+              <article role="button" tabIndex={0} className={`badge-card ${badge.optional ? "optional" : ""} ${done > 0 ? "active" : ""} ${isComplete ? "complete" : ""} ${isRecommended ? "recommended" : ""}`} onClick={() => onOpenBadge(badge.id, openLevel)} onKeyDown={(event) => { if (event.key === "Enter" || event.key === " ") { event.preventDefault(); onOpenBadge(badge.id, openLevel); } }} key={badge.id} aria-label={`${done > 0 ? "Continue" : "Open"} ${badge.title}`}>
+                <div className="badge-card-top"><div className="badge-number">{badge.number}</div><span className="status">{status}</span></div>
                 <h3>{badge.title}</h3><p>{badge.short}</p>
                 <div className="mini-progress"><i style={{ width: `${Math.round((done / total) * 100)}%` }} /></div>
                 <div className="badge-meta"><span>{done} / {total} tasks</span>{badge.optional && <span>Does not affect core progress</span>}</div>
@@ -278,7 +345,7 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, onOpe
                     return <span className={levelDone === 3 ? "earned" : ""} key={level.id}>{level.id === "bronze" ? "Bronze" : level.id === "silver" ? "Silver" : "Gold"} {levelDone}/3</span>;
                   })}
                 </div>
-                <span className="card-button">{done > 0 ? "Continue badge" : "Open badge"} <span>→</span></span>
+                <span className="card-button">{done > 0 ? "Continue badge" : isRecommended ? "Start here" : "Open badge"} <span>→</span></span>
               </article>
             );
           })}
@@ -293,7 +360,7 @@ function Dashboard({ progress, completeTasks, completeBadges, resumeBadge, onOpe
   );
 }
 
-function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, onToggleTask, onOpenBadge }: {
+function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, onToggleTask, onOpenBadge, onDownload, onUpload }: {
   badge: Badge;
   level: ChallengeLevel;
   levelIndex: number;
@@ -302,6 +369,8 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
   onSelectLevel: (index: number) => void;
   onToggleTask: (key: string) => void;
   onOpenBadge: (id: string, level?: number) => void;
+  onDownload: () => void;
+  onUpload: (event: ChangeEvent<HTMLInputElement>) => void;
 }) {
   const levelDone = countComplete(progress, taskKeys(badge, level));
   const badgeDone = countComplete(progress, taskKeys(badge));
@@ -311,12 +380,19 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
 
   return (
     <div className="badge-view">
+      <nav className="mobile-course-nav" aria-label="Course and challenge navigation">
+        <button type="button" onClick={onBack}>← Pathway</button>
+        <label><span>Badge</span><select value={badge.id} onChange={(event) => { const selected = BADGES.find((item) => item.id === event.target.value); if (selected) onOpenBadge(selected.id, firstIncompleteLevelIndex(progress, selected)); }}>{BADGES.map((item) => <option value={item.id} key={item.id}>{item.number} · {item.title}</option>)}</select></label>
+        <label><span>Level</span><select value={levelIndex} onChange={(event) => onSelectLevel(Number(event.target.value))}>{badge.levels.map((item, index) => <option value={index} key={item.id}>{item.label}</option>)}</select></label>
+        <button type="button" onClick={onDownload}>Save report</button>
+        <label className="mobile-upload">Upload report<input type="file" accept=".json,application/json" onChange={onUpload} /></label>
+      </nav>
       <aside className="course-nav">
         <button className="back-link" type="button" onClick={onBack}>← Course pathway</button>
         <p className="nav-label">Badges</p>
         {BADGES.map((item) => {
           const done = countComplete(progress, taskKeys(item));
-          return <button type="button" className={item.id === badge.id ? "selected" : ""} onClick={() => onOpenBadge(item.id)} key={item.id}><span>{item.number}</span><div>{item.title}<small>{done} / {taskKeys(item).length} tasks{item.optional ? " · optional" : ""}</small></div></button>;
+          return <button type="button" className={item.id === badge.id ? "selected" : ""} onClick={() => onOpenBadge(item.id, firstIncompleteLevelIndex(progress, item))} key={item.id}><span>{item.number}</span><div>{item.title}<small>{done} / {taskKeys(item).length} tasks{item.optional ? " · optional" : ""}</small></div></button>;
         })}
       </aside>
 
@@ -325,6 +401,7 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
           <div><p className="eyebrow">Badge {badge.number} · {badge.credential}</p><h1>{badge.title}</h1><p>{badge.short}</p></div>
           <div className="badge-facts"><span><b>Before this</b>{badge.prerequisite}</span><span><b>Progress</b>{badgeDone} / {taskKeys(badge).length} tasks</span>{badge.optional && <span><b>Pathway</b>Optional advanced work</span>}</div>
         </section>
+        <div className="badge-shortcuts"><span>You are in Badge {badge.number} · {level.label}</span><a href="#current-challenge">Jump to current challenge ↓</a></div>
 
         <section className="keyword-section" aria-labelledby="keyword-title">
           <div><p className="eyebrow dark">Read these first</p><h2 id="keyword-title">Keywords for this badge</h2><p>These words will appear in the pseudocode, Python or task instructions.</p></div>
@@ -336,43 +413,28 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
           <div className="rules-card"><h2>Rules to keep beside you</h2><ol>{badge.rules.map((item, index) => <li key={item}><span>{index + 1}</span>{item}</li>)}</ol></div>
         </section>
 
-        <section className="translation-section">
+        {!independentBadge && <section className="translation-section">
           <div className="section-heading compact"><div><p className="eyebrow dark">Translation bridge</p><h2>Same algorithm, different notation</h2></div><p>Read left to right. Do not memorise a Python line until you understand what it does.</p></div>
-          {independentBadge ? (
-            <div className="independent-bridge">
-              <div className="independence-callout"><strong>Higher-challenge approach</strong><p>Start from the description and decide how the algorithm should work. Open each example only after you have drafted your own idea.</p></div>
-              <details className="pseudocode-box"><summary>Step 1 · Reveal the Cambridge pseudocode example</summary><div className="reveal-warning">Before opening: identify the inputs, processing and outputs, then sketch the algorithm in your own pseudocode.</div><CodeBlock label="Cambridge pseudocode" value={badge.pseudoExample} /></details>
-              <details className="starter-box"><summary>Step 2 · Reveal the Python comparison</summary><div className="starter-warning">Open this after comparing your plan with the pseudocode. Explain each Python line before using it.</div><CodeBlock label="Python equivalent" value={badge.pythonExample} /></details>
-            </div>
-          ) : (
-            <div className="code-bridge"><CodeBlock label="Cambridge pseudocode" value={badge.pseudoExample} /><b aria-hidden="true">→</b><CodeBlock label="Python equivalent" value={badge.pythonExample} /></div>
-          )}
+          <div className="code-bridge"><CodeBlock label="Cambridge pseudocode" value={badge.pseudoExample} /><b aria-hidden="true">→</b><CodeBlock label="Python equivalent" value={badge.pythonExample} /></div>
           {badge.id === "starter" && <div className="setup-callout"><strong>How to complete every task</strong><ol><li>Open the Python editor used in class.</li><li>Create a new file and save it before typing.</li><li>Type or adapt the supplied starting point.</li><li>Press Run and read the output area.</li><li>If an error appears, read the final line first and check the named line number.</li><li>Tick the task only when your own code passes the listed test.</li></ol></div>}
           {badge.id === "files" && <div className="download-callout"><div><strong>Before you start the file badge</strong><p>Download the supplied text files and keep them in the same folder as your Python program.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download practice files</a></div>}
-          {badge.id === "problem-solver" && <div className="download-callout"><div><strong>Before you start the final problem</strong><p>Download names.txt and tournament_scores.txt. Keep both files in the same folder as your Python program.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download capstone files</a></div>}
-          {badge.id === "advanced-as" && <div className="download-callout"><div><strong>Read this before Advanced 1</strong><p>These are three separate programs. Complete them in order. Download the supplied files once, then use only the file named in the current challenge. Do not edit the supplied test files.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download advanced files</a></div>}
-        </section>
+        </section>}
 
-        <section className="level-section">
+        {badge.id === "problem-solver" && <section className="resource-section"><div className="download-callout"><div><strong>Files for this capstone</strong><p>Download names.txt and tournament_scores.txt. Keep both files in the same folder as your Python program.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download capstone files</a></div></section>}
+        {badge.id === "advanced-as" && <section className="resource-section"><div className="download-callout"><div><strong>Files for the three advanced programs</strong><p>Download once, then use only the file named in the current challenge. Do not edit the supplied test files.</p></div><a href={`${PUBLIC_BASE_PATH}/python-bridge-practice-files.zip`} download>Download advanced files</a></div></section>}
+
+        <section className="level-section" id="current-challenge">
           <div className="level-tabs" role="tablist" aria-label="Challenge level">
             {badge.levels.map((item, index) => {
               const done = countComplete(progress, taskKeys(badge, item));
-              return <button type="button" role="tab" aria-selected={index === levelIndex} className={index === levelIndex ? "selected" : ""} onClick={() => onSelectLevel(index)} key={item.id}><span>{item.id}</span><strong>{item.label.split(" · ")[1]}</strong><small>{done} / 3 complete</small></button>;
+              const tabId = `level-tab-${badge.id}-${item.id}`;
+              return <button type="button" role="tab" id={tabId} aria-controls={`level-panel-${badge.id}-${item.id}`} aria-selected={index === levelIndex} tabIndex={index === levelIndex ? 0 : -1} className={index === levelIndex ? "selected" : ""} onClick={() => onSelectLevel(index)} onKeyDown={(event) => { let next = index; if (event.key === "ArrowRight") next = (index + 1) % badge.levels.length; else if (event.key === "ArrowLeft") next = (index - 1 + badge.levels.length) % badge.levels.length; else if (event.key === "Home") next = 0; else if (event.key === "End") next = badge.levels.length - 1; else return; event.preventDefault(); onSelectLevel(next); window.requestAnimationFrame(() => document.getElementById(`level-tab-${badge.id}-${badge.levels[next].id}`)?.focus()); }} key={item.id}><span>{item.id}</span><strong>{item.label.split(" · ")[1]}</strong><small>{index === levelIndex ? "Current · " : ""}{done} / 3 complete</small></button>;
             })}
           </div>
 
-          <article className={`mission-card ${level.id}`}>
+          <article className={`mission-card ${level.id}`} role="tabpanel" id={`level-panel-${badge.id}-${level.id}`} aria-labelledby={`level-tab-${badge.id}-${level.id}`} tabIndex={0}>
             <div className="mission-head"><div><p>{level.label}</p><h2>{level.scenario}</h2><span>{level.support}</span></div><ProgressBar value={levelDone} max={3} label="This level" /></div>
             <div className="outcome"><strong>Finished outcome</strong><p>{level.outcome}</p></div>
-
-            {level.setup && level.deliverables && (
-              <section className="clarity-grid" aria-label="Challenge setup and completion checklist">
-                <article><p className="eyebrow dark">Before you type any code</p><h3>Set up exactly like this</h3><ol>{level.setup.map((item) => <li key={item}>{item}</li>)}</ol></article>
-                <article><p className="eyebrow dark">Definition of finished</p><h3>Keep these files</h3><ul>{level.deliverables.map((item) => <li key={item}>{item}</li>)}</ul></article>
-              </section>
-            )}
-
-            {level.expectedOutput && <CodeBlock label="Known-good output using the supplied test file" value={level.expectedOutput} copyLabel="Copy expected output" />}
 
             {independentBadge && (
               <section className="plain-english-brief" aria-label="Plain-English challenge brief">
@@ -382,6 +444,15 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
             )}
 
             <div className="work-order"><span>Work in this order</span>{independentBadge ? <ol><li>Read the plain-English brief and identify the inputs, processing and outputs.</li><li>Draft your own pseudocode or structure chart.</li><li>Reveal the pseudocode and compare it with your plan.</li><li>Begin the Python yourself; reveal the starter only if needed.</li><li>Complete every test before comparing with the model.</li></ol> : <ol><li>Read the pseudocode.</li><li>Try the first line yourself.</li><li>Reveal the starter only if you need a scaffold.</li><li>Complete and test one task at a time.</li><li>Use the model only after your own attempt.</li></ol>}</div>
+
+            {level.setup && level.deliverables && (
+              <section className="clarity-grid" aria-label="Challenge setup and completion checklist">
+                <article><p className="eyebrow dark">Before you type any code</p><h3>Set up exactly like this</h3><ol>{level.setup.map((item) => <li key={item}>{item}</li>)}</ol></article>
+                <article><p className="eyebrow dark">Definition of finished</p><h3>Keep these files</h3><ul>{level.deliverables.map((item) => <li key={item}>{item}</li>)}</ul></article>
+              </section>
+            )}
+
+            {level.expectedOutput && <details className="expected-output-box"><summary>Check your result · reveal the known-good output</summary><div className="reveal-warning">Run your own program once before comparing. Differences in spacing are acceptable unless the task specifies an exact format.</div><CodeBlock label="Known-good output using the supplied test file" value={level.expectedOutput} copyLabel="Copy expected output" /></details>}
 
             {badge.id === "input" && level.id === "bronze" && (
               <section className="foundation-strip in-activity" aria-labelledby="input-foundation">
@@ -425,7 +496,7 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
             )}
 
             <div className="support-grid">
-              <details className="hint-box"><summary>Stuck? Reveal hints one at a time</summary><ol>{level.hints.map((hint) => <li key={hint}>{hint}</li>)}</ol></details>
+              <ProgressiveHints hints={level.hints} />
               <details className="model-box"><summary>Compare with the model Python answer</summary><div className="model-warning">Use this after you have run and tested your own attempt. A different working solution can still be correct.</div><CodeBlock label="Model Python" value={level.model} /><h4>Why this works</h4><ul>{level.modelNotes.map((note) => <li key={note}>{note}</li>)}</ul></details>
             </div>
 
@@ -434,7 +505,7 @@ function BadgeView({ badge, level, levelIndex, progress, onBack, onSelectLevel, 
             <div className="mission-actions">
               {levelIndex > 0 && <button type="button" onClick={() => onSelectLevel(levelIndex - 1)}>← Previous level</button>}
               {levelIndex < badge.levels.length - 1 && <button className="primary-small" type="button" onClick={() => { onSelectLevel(levelIndex + 1); window.scrollTo({ top: 520, behavior: "smooth" }); }}>Next challenge level →</button>}
-              {levelIndex === badge.levels.length - 1 && nextBadge && <button className="primary-small" type="button" onClick={() => onOpenBadge(nextBadge.id)}>Next badge: {nextBadge.title} →</button>}
+              {levelIndex === badge.levels.length - 1 && nextBadge && <button className="primary-small" type="button" onClick={() => onOpenBadge(nextBadge.id, firstIncompleteLevelIndex(progress, nextBadge))}>Next badge: {nextBadge.title} →</button>}
             </div>
           </article>
         </section>
